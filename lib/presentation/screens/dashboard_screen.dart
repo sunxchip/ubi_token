@@ -1,8 +1,9 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+import '../../data/database/app_database.dart' as db;
 import '../../data/datasources/obd_datasource.dart';
 import '../../core/utils/scoring_utils.dart';
 import '../../data/models/drive_event.dart';
-import '../../core/constants/obd_constants.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -26,6 +27,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final List<DriveEvent> _events = [];
   final List<String> _eventLog   = [];
 
+  String? _currentSessionId;
+  final _db = db.AppDatabase.instance;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +44,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final speed = await _obd.getSpeed();
       final rpm   = await _obd.getRpm();
 
+      final wasDriving = _isDriving;
+
       setState(() {
         _prevSpeed = _speed;
         _prevRpm   = _rpm;
@@ -48,8 +54,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _isDriving = rpm > 0;
       });
 
+      if (!wasDriving && _isDriving) {
+        await _startSession();
+      } else if (wasDriving && !_isDriving) {
+        await _endSession();
+      }
+
       _detectEvents(speed, rpm);
     }
+  }
+
+  Future<void> _startSession() async {
+    final sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+    await _db.insertSession(db.TripSessionsCompanion(
+      sessionId:  Value(sessionId),
+      startTime:  Value(DateTime.now().millisecondsSinceEpoch),
+      finalScore: Value(100),
+    ));
+    setState(() {
+      _currentSessionId = sessionId;
+      _events.clear();
+      _eventLog.clear();
+      _score = 100;
+    });
+  }
+
+  Future<void> _endSession() async {
+    final sessionId = _currentSessionId;
+    if (sessionId == null) return;
+    final sessions = await _db.getAllSessions();
+    final session = sessions.where((s) => s.sessionId == sessionId).firstOrNull;
+    if (session == null) return;
+    await _db.updateSession(db.TripSessionsCompanion(
+      id:         Value(session.id),
+      sessionId:  Value(session.sessionId),
+      startTime:  Value(session.startTime),
+      endTime:    Value(DateTime.now().millisecondsSinceEpoch),
+      distanceKm: Value(session.distanceKm),
+      finalScore: Value(_score),
+    ));
+    setState(() => _currentSessionId = null);
   }
 
   void _detectEvents(double speed, double rpm) {
@@ -64,18 +108,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _addEvent(EventType type, double value, String log) {
+    final now = DateTime.now();
     final event = DriveEvent(
       type: type,
-      timestamp: DateTime.now(),
+      timestamp: now,
       latitude: 0,
       longitude: 0,
       value: value,
     );
     setState(() {
       _events.add(event);
-      _eventLog.insert(0, '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')} $log');
+      _eventLog.insert(0, '${now.hour}:${now.minute.toString().padLeft(2, '0')} $log');
       _score = ScoringUtils.calculateScore(_events);
     });
+    final sessionId = _currentSessionId;
+    if (sessionId != null) {
+      _db.insertEvent(db.DriveEventsCompanion(
+        sessionId: Value(sessionId),
+        type:      Value(type.index),
+        timestamp: Value(now.millisecondsSinceEpoch),
+        latitude:  Value(0.0),
+        longitude: Value(0.0),
+        value:     Value(value),
+      ));
+    }
   }
 
   @override

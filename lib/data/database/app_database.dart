@@ -26,7 +26,9 @@ class DriveEvents extends Table {
 
 @DriftDatabase(tables: [TripSessions, DriveEvents])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  AppDatabase._() : super(_openConnection());
+
+  static final AppDatabase instance = AppDatabase._();
 
   @override
   int get schemaVersion => 1;

@@ -1,49 +1,91 @@
 import 'package:dio/dio.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'its_datasource.dart';
 
 class ApiDatasource {
   final Dio _dio = Dio(BaseOptions(
+    baseUrl: dotenv.env['SERVER_BASE_URL'] ?? 'http://127.0.0.1:8000',
     connectTimeout: const Duration(seconds: 5),
     receiveTimeout: const Duration(seconds: 5),
   ));
 
-  // 공공데이터포털 과속 카메라 API
-  // 실제 API 키는 pubspec에 환경변수로 관리 권장
-  static const String _baseUrl =
-      'https://api.odcloud.kr/api';
-  static const String _apiKey = 'YOUR_API_KEY'; // 발급 후 교체
-
-  // 현재 위치 주변 과속 카메라 조회
-  Future<List<Map<String, dynamic>>> getSpeedCameras({
-    required double latitude,
-    required double longitude,
-    double radiusKm = 1.0,
+  // ── 회원가입 ─────────────────────────────────────────
+  Future<Map<String, dynamic>?> signup({
+    required String email,
+    required String password,
   }) async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl/15070282/v1/uddi:speed-camera',
-        queryParameters: {
-          'serviceKey': _apiKey,
-          'pageNo': 1,
-          'numOfRows': 50,
-          'type': 'json',
-        },
-      );
-      if (response.statusCode == 200) {
-        final items = response.data['response']['body']['items'] as List?;
-        return items?.cast<Map<String, dynamic>>() ?? [];
-      }
-    } catch (_) {}
-    return [];
+      final res = await _dio.post('/auth/signup', data: {
+        'email': email,
+        'password': password,
+      });
+      return res.data;
+    } on DioException catch (e) {
+      return {'error': e.response?.data['detail'] ?? '서버 오류'};
+    }
   }
 
-  // 도로 제한속도 조회
-  Future<int> getSpeedLimit({
+  // ── 로그인 ───────────────────────────────────────────
+  Future<Map<String, dynamic>?> login({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      final res = await _dio.post('/auth/login', data: {
+        'email': email,
+        'password': password,
+      });
+      return res.data;
+    } on DioException catch (e) {
+      return {'error': e.response?.data['detail'] ?? '서버 오류'};
+    }
+  }
+
+  // ── VIN 인증 ─────────────────────────────────────────
+  Future<Map<String, dynamic>?> vinVerify({
+    required String userId,
+    required String vin,
+  }) async {
+    try {
+      final res = await _dio.post('/auth/vin-verify', data: {
+        'user_id': userId,
+        'vin': vin,
+      });
+      return res.data;
+    } on DioException catch (e) {
+      return {'error': e.response?.data['detail'] ?? '서버 오류'};
+    }
+  }
+
+  // ── 토큰 검증 ────────────────────────────────────────
+  Future<bool> verifyToken(String token) async {
+    try {
+      final res = await _dio.get('/auth/verify-token/$token');
+      return res.data['valid'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  final _its = ItsDatasource();
+
+  // ── [비교값] 현재 도로 흐름 속도 (trafficInfo) ────────────
+  // 교통소통정보 API → 지금 이 도로에서 차들이 실제로 얼마나 달리는지
+  Future<int> getCurrentRoadSpeed({
     required double latitude,
     required double longitude,
   }) async {
-    // 공공데이터포털 도로 정보 API 연동
-    // 임시로 일반도로 60km/h 반환
-    // 실제 API 키 발급 후 구현
-    return 60;
+    return await _its.getRoadSpeed(latitude: latitude, longitude: longitude) ?? 0;
+  }
+
+  // ── [기준값] 법정 제한속도 (detectorInfo) ─────────────────
+  // 차량검지기 API → 미승인 상태, 추후 구현 예정
+  Future<int?> getLegalSpeedLimit({
+    required double latitude,
+    required double longitude,
+  }) async {
+    // TODO: detectorInfo API 승인 후 구현
+    return null;
   }
 }
