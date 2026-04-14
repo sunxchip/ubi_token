@@ -44,6 +44,7 @@ dependencies:
   flutter_dotenv: ^5.2.1
   xml: ^6.5.0
   shared_preferences: ^2.5.3
+  permission_handler: ^11.3.0
   json_annotation: ^4.9.0
   http: ^1.6.0
   sqlite3_flutter_libs: ^0.5.42

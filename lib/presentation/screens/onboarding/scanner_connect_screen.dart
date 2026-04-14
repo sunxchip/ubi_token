@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../data/datasources/obd_datasource.dart';
 import 'vin_auth_screen.dart';
 
 class ScannerConnectScreen extends StatefulWidget {
-  const ScannerConnectScreen({super.key});
+  /// [isReconnect] true 이면 VIN 인증 스킵 후 홈 화면으로 바로 복귀
+  final bool isReconnect;
+  const ScannerConnectScreen({super.key, this.isReconnect = false});
 
   @override
   State<ScannerConnectScreen> createState() => _ScannerConnectScreenState();
@@ -13,23 +17,88 @@ class ScannerConnectScreen extends StatefulWidget {
 class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
   final ObdDatasource _obd = ObdDatasource();
   List<ScanResult> _scanResults = [];
-  bool _isScanning  = false;
+  bool _isScanning = false;
   bool _isConnecting = false;
+  StreamSubscription? _scanSubscription;
+
+  bool _isAutoConnecting = false;
 
   @override
   void initState() {
     super.initState();
-    _startScan();
+    _requestPermissionsAndScan();
   }
 
-  void _startScan() {
+  @override
+  void dispose() {
+    _scanSubscription?.cancel();
+    FlutterBluePlus.stopScan();
+    // 연결 성공 후 전역 인스턴스로 등록된 경우 dispose하지 않음
+    // (VinAuthScreen → HomeScreen에서 계속 사용)
+    if (!_obd.isConnected) _obd.dispose();
+    super.dispose();
+  }
+
+  Future<void> _requestPermissionsAndScan() async {
+    await [
+      Permission.bluetooth,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+
+    if (!mounted) return;
+    await _tryAutoConnect();
+  }
+
+  Future<void> _tryAutoConnect() async {
+    final savedId = await ObdDatasource.loadLastDeviceId();
+    if (savedId == null) {
+      _startScan();
+      return;
+    }
+
+    // 이미 시스템에 연결된(본딩된) 기기 중에서 먼저 확인
+    try {
+      final systemDevices = await FlutterBluePlus.systemDevices([]);
+      for (final device in systemDevices) {
+        if (device.remoteId.str == savedId) {
+          if (mounted) {
+            setState(() => _isAutoConnecting = true);
+            await _connect(device);
+            if (mounted) setState(() => _isAutoConnecting = false);
+          }
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 시스템 기기에 없으면 일반 스캔 시작 (발견 시 자동 연결)
+    _startScan(autoConnectId: savedId);
+  }
+
+  Future<void> _startScan({String? autoConnectId}) async {
+    await _scanSubscription?.cancel();
+    await FlutterBluePlus.stopScan();
+
     setState(() {
       _isScanning = true;
       _scanResults = [];
     });
 
-    _obd.scanDevices().listen((results) {
+    _scanSubscription = _obd.scanDevices().listen((results) {
+      if (!mounted) return;
       setState(() => _scanResults = results);
+
+      // 저장된 기기가 스캔 결과에 나타나면 자동 연결
+      if (autoConnectId != null && !_isConnecting) {
+        final match = results.where(
+          (r) => r.device.remoteId.str == autoConnectId,
+        );
+        if (match.isNotEmpty) {
+          _connect(match.first.device);
+        }
+      }
     });
 
     Future.delayed(const Duration(seconds: 10), () {
@@ -46,12 +115,17 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
     setState(() => _isConnecting = false);
 
     if (success) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => VinAuthScreen(obd: _obd),
-        ),
-      );
+      if (widget.isReconnect) {
+        // 재연결: VIN 인증 이미 완료 → 홈 화면으로 복귀
+        Navigator.pop(context);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VinAuthScreen(obd: _obd),
+          ),
+        );
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('연결 실패. 다시 시도해주세요.')),
@@ -78,7 +152,19 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
               style: TextStyle(fontSize: 15, color: Colors.grey),
             ),
             const SizedBox(height: 24),
-            if (_isScanning)
+            if (_isAutoConnecting)
+              const Row(
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Text('이전 기기에 재연결 중...'),
+                ],
+              )
+            else if (_isScanning)
               const Row(
                 children: [
                   SizedBox(

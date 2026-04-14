@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../data/datasources/obd_datasource.dart';
 import 'dashboard_screen.dart';
 import 'history_screen.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
+import 'pid_diagnostic_screen.dart';
+import 'onboarding/scanner_connect_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,9 +16,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _vin         = '';
-  int _lastScore      = 0;
-  bool _isBleConnected = false;
+  String _vin      = '';
+  int _lastScore   = 0;
+
+  bool get _isBleConnected => ObdDatasource.connected != null;
 
   @override
   void initState() {
@@ -66,40 +70,58 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _isBleConnected
-                          ? Colors.green[50]
-                          : Colors.grey[100],
-                      borderRadius: BorderRadius.circular(99),
-                      border: Border.all(
+                  GestureDetector(
+                    onTap: _isBleConnected
+                        ? null
+                        : () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ScannerConnectScreen(
+                                  isReconnect: true,
+                                ),
+                              ),
+                            );
+                            // 재연결 후 UI 갱신
+                            if (mounted) setState(() {});
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
                         color: _isBleConnected
-                            ? Colors.green
-                            : Colors.grey[300]!,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.bluetooth,
-                          size: 14,
+                            ? Colors.green[50]
+                            : Colors.orange[50],
+                        borderRadius: BorderRadius.circular(99),
+                        border: Border.all(
                           color: _isBleConnected
                               ? Colors.green
-                              : Colors.grey,
+                              : Colors.orange,
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _isBleConnected ? 'BLE 연결됨' : '연결 안됨',
-                          style: TextStyle(
-                            fontSize: 11,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _isBleConnected
+                                ? Icons.bluetooth_connected
+                                : Icons.bluetooth_disabled,
+                            size: 14,
                             color: _isBleConnected
                                 ? Colors.green
-                                : Colors.grey,
+                                : Colors.orange,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          Text(
+                            _isBleConnected ? 'BLE 연결됨' : '탭하여 재연결',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _isBleConnected
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -163,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: 1.2,
+                childAspectRatio: 1.15,
                 children: [
                   _MenuCard(
                     icon: Icons.list_alt_rounded,
@@ -211,6 +233,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       MaterialPageRoute(
                           builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                  _MenuCard(
+                    icon: Icons.developer_mode_rounded,
+                    iconColor: const Color(0xFF0EA5E9),
+                    iconBg: const Color(0xFFE0F2FE),
+                    label: 'PID 진단',
+                    sub: '실차 검증용',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const PidDiagnosticScreen()),
                     ),
                   ),
                 ],
