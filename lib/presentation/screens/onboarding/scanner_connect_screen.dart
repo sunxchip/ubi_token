@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/datasources/obd_datasource.dart';
+import '../home_screen.dart';
 import 'vin_auth_screen.dart';
 
 class ScannerConnectScreen extends StatefulWidget {
@@ -104,6 +106,42 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
     Future.delayed(const Duration(seconds: 10), () {
       if (mounted) setState(() => _isScanning = false);
     });
+  }
+
+  // ── Mock 모드 진입 ────────────────────────────────────────────────────────
+  // 개발/시연용: 실제 ELM327 스캐너 없이 다음 화면으로 이동한다.
+  // TODO: 실제 차량 테스트 시에는 이 버튼을 숨기거나 개발자 설정 메뉴로 이동할 것
+  // TODO: 실제 ELM327 연결 성공 시에는 아래 Mock 분기 없이 기존 _connect() 흐름 사용
+  Future<void> _enterMockMode() async {
+    final prefs     = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('auth_token') ?? '';
+    final vin       = prefs.getString('vin')        ?? '';
+
+    if (!mounted) return;
+
+    if (authToken.isNotEmpty && vin.isNotEmpty) {
+      // 이미 VIN 인증 완료 → HomeScreen으로 바로 이동
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (_) => false,
+      );
+    } else {
+      // VIN 미인증 상태 → HomeScreen으로 이동 후 안전점수 화면에서 Mock 데이터 사용 가능
+      // VinAuthScreen은 실제 OBD 연결이 필요하므로 Mock 모드에서는 건너뜀
+      // TODO: Mock 전용 VinAuthScreen이 필요하면 MockObdDatasource를 별도 구현할 것
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mock 모드: VIN 미인증 상태입니다. 안전점수 화면에서 Mock 데이터로 테스트 가능합니다.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+        (_) => false,
+      );
+    }
   }
 
   Future<void> _connect(BluetoothDevice device) async {
@@ -225,6 +263,43 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
                   ),
                 ),
                 child: const Text('다시 검색'),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── 개발/시연용 Mock 모드 버튼 ──────────────────────────────────
+            // TODO: 실제 차량 테스트(배포) 시에는 이 버튼을 숨기거나 개발자 설정으로 이동
+            // TODO: 실제 ELM327 연결 성공 시에는 기존 _connect() 흐름이 자동 사용됨
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: TextButton(
+                onPressed: _isConnecting ? null : _enterMockMode,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey[500],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey[300]!),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.science_outlined, size: 16, color: Colors.grey[400]),
+                    const SizedBox(width: 8),
+                    Text(
+                      '스캐너 없이 테스트하기',
+                      style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Center(
+              child: Text(
+                '에뮬레이터/개발 환경 전용 · 실제 OBD 데이터 없음',
+                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
               ),
             ),
           ],
