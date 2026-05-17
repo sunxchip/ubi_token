@@ -5,7 +5,15 @@ import '../../data/models/drive_event.dart';
 
 class DrivingScoreResultScreen extends StatefulWidget {
   final ScoreResult result;
-  const DrivingScoreResultScreen({super.key, required this.result});
+  final DateTime?   startTime;
+  final DateTime?   endTime;
+
+  const DrivingScoreResultScreen({
+    super.key,
+    required this.result,
+    this.startTime,
+    this.endTime,
+  });
 
   @override
   State<DrivingScoreResultScreen> createState() => _DrivingScoreResultScreenState();
@@ -21,6 +29,15 @@ class _DrivingScoreResultScreenState extends State<DrivingScoreResultScreen> {
   Future<void> _saveLastScore() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('last_score', widget.result.score);
+  }
+
+  String get _durationLabel {
+    final start = widget.startTime;
+    final end   = widget.endTime;
+    if (start == null || end == null) return '-';
+    final diff = end.difference(start);
+    if (diff.inMinutes >= 1) return '${diff.inMinutes}분 ${diff.inSeconds % 60}초';
+    return '${diff.inSeconds}초';
   }
 
   Color get _scoreColor {
@@ -56,7 +73,17 @@ class _DrivingScoreResultScreenState extends State<DrivingScoreResultScreen> {
           children: [
             // ── 최종 점수 헤더 ──────────────────────────────
             _ScoreHeader(score: r.score, color: _scoreColor, result: r),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+
+            // ── 주행 시간 표시 ──────────────────────────────
+            if (widget.startTime != null)
+              Center(
+                child: Text(
+                  '주행 시간: $_durationLabel',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                ),
+              ),
+            const SizedBox(height: 8),
 
             // ── 감점 요약 ───────────────────────────────────
             const _SectionTitle('감점 요약'),

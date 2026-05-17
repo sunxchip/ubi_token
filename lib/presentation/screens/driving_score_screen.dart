@@ -6,6 +6,7 @@ import '../../data/models/driving_sample.dart';
 import '../../data/models/drive_event.dart';
 import '../../data/models/score_result.dart';
 import '../../core/utils/scoring_utils.dart';
+import '../../data/repositories/trip_session_repository.dart';
 import 'driving_score_result_screen.dart';
 
 class DrivingScoreScreen extends StatefulWidget {
@@ -16,23 +17,34 @@ class DrivingScoreScreen extends StatefulWidget {
 }
 
 class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
-  // ── VIN 인증 상태 ─────────────────────────────────────
-  // VIN 인증 성공 시 vin_auth_screen.dart에서 SharedPreferences에
-  // 'auth_token', 'vin', 'car_model'을 저장한다.
+  // ── VIN 인증 상태 ─────────────────────────────────────────────────────────
+  // VIN 인증 성공 시 vin_auth_screen.dart가 SharedPreferences에
+  // 'auth_token', 'vin', 'car_model' 키를 저장한다.
+  //
+  // TODO: 기존 VIN 인증 결과 Provider/Service/State와 연결
+  // TODO: 현재 임시로 SharedPreferences 기반 isVinVerified를 사용하며,
+  //       실제 VIN 인증 결과 상태 관리 클래스로 교체 필요
   String _vin          = '';
   String _carModel     = '';
   bool   _isVinVerified = false;
 
-  // ── 주행 상태 ─────────────────────────────────────────
+  // ── 주행 상태 ─────────────────────────────────────────────────────────────
   bool _isDriving = false;
   DrivingSample? _currentSample;
   DrivingSample? _prevSample;
-  final List<DriveEvent> _recentEvents = []; // 화면 표시용 (최근 순)
+  DateTime? _startTime;
+  final List<DriveEvent> _recentEvents = [];
   final DrivingScoreEngine _scoreEngine = DrivingScoreEngine();
 
-  // ── 데이터 소스 ───────────────────────────────────────
-  // TODO: 실제 ELM327 연결 시 MockObdDataSource → RealObdDataSource로 교체
-  final DrivingDataSource _dataSource = MockObdDataSource();
+  // ── 시나리오 선택 ─────────────────────────────────────────────────────────
+  // TODO: 실제 RealObdDataSource로 전환 시 이 변수와 시나리오 드롭다운 UI를 숨길 것
+  MockDriveScenario _selectedScenario = MockDriveScenario.risky;
+
+  // ── 데이터 소스 ───────────────────────────────────────────────────────────
+  // TODO: 실제 ELM327 연결 시 아래 한 줄만 교체
+  //   변경 전: DrivingDataSource _dataSource = MockObdDataSource(scenario: _selectedScenario);
+  //   변경 후: DrivingDataSource _dataSource = RealObdDataSource(ObdDatasource.connected!);
+  DrivingDataSource? _dataSource;
   StreamSubscription<DrivingSample>? _subscription;
 
   @override
@@ -41,9 +53,8 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
     _loadVinStatus();
   }
 
-  // SharedPreferences에서 VIN 인증 상태 로드
-  // VIN 인증 성공 조건: auth_token이 비어 있지 않고 vin이 존재
-  // TODO: 별도 Auth 상태 관리 클래스(Provider/Riverpod 등)로 교체 가능
+  /// SharedPreferences에서 VIN 인증 상태 로드
+  /// VIN 인증 성공 조건: auth_token이 비어 있지 않고 vin이 존재
   Future<void> _loadVinStatus() async {
     final prefs     = await SharedPreferences.getInstance();
     final authToken = prefs.getString('auth_token') ?? '';
@@ -51,31 +62,35 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
     final carModel  = prefs.getString('car_model')  ?? '';
 
     setState(() {
-      _vin          = vin;
-      _carModel     = carModel;
+      _vin           = vin;
+      _carModel      = carModel;
       _isVinVerified = authToken.isNotEmpty && vin.isNotEmpty;
     });
   }
 
-  // ── 주행 시작 ─────────────────────────────────────────
+  // ── 주행 시작 ─────────────────────────────────────────────────────────────
   void _startDriving() {
     if (!_isVinVerified) return;
+
+    _dataSource = MockObdDataSource(scenario: _selectedScenario);
     _scoreEngine.reset();
+    _startTime = DateTime.now();
+
     setState(() {
-      _isDriving    = true;
+      _isDriving     = true;
       _currentSample = null;
-      _prevSample   = null;
+      _prevSample    = null;
       _recentEvents.clear();
     });
 
-    _subscription = _dataSource.watchDrivingData(_vin).listen((sample) {
+    _subscription = _dataSource!.watchDrivingData(_vin).listen((sample) {
       if (!mounted) return;
       final newEvents = _scoreEngine.processSample(sample, _prevSample);
       setState(() {
         _prevSample    = _currentSample;
         _currentSample = sample;
         if (newEvents.isNotEmpty) {
-          _recentEvents.insertAll(0, newEvents); // 최신 이벤트를 위로
+          _recentEvents.insertAll(0, newEvents);
           if (_recentEvents.length > 30) {
             _recentEvents.removeRange(30, _recentEvents.length);
           }
@@ -84,20 +99,37 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
     });
   }
 
-  // ── 주행 종료 ─────────────────────────────────────────
+  // ── 주행 종료 ─────────────────────────────────────────────────────────────
   Future<void> _stopDriving() async {
     await _subscription?.cancel();
     _subscription = null;
-    _dataSource.dispose();
+    _dataSource?.dispose();
+    _dataSource = null;
 
-    final result = _scoreEngine.buildResult();
+    final endTime = DateTime.now();
+    final result  = _scoreEngine.buildResult();
     setState(() => _isDriving = false);
+
+    // DB 저장 (실패해도 결과 화면은 정상 표시)
+    try {
+      await TripSessionRepository.instance.saveScoreResult(
+        result:    result,
+        vin:       _vin,
+        startTime: _startTime ?? endTime,
+        endTime:   endTime,
+        sampleCount: _currentSample != null ? 1 : 0, // 추후 누적 카운터로 교체
+      );
+    } catch (_) {}
 
     if (!mounted) return;
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => DrivingScoreResultScreen(result: result),
+        builder: (_) => DrivingScoreResultScreen(
+          result:    result,
+          startTime: _startTime,
+          endTime:   endTime,
+        ),
       ),
     );
   }
@@ -105,11 +137,11 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   @override
   void dispose() {
     _subscription?.cancel();
-    _dataSource.dispose();
+    _dataSource?.dispose();
     super.dispose();
   }
 
-  // ── UI ───────────────────────────────────────────────
+  // ── UI ───────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,20 +151,32 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1B3A5C),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded, size: 20),
+            onPressed: _isDriving ? null : _loadVinStatus,
+            tooltip: 'VIN 상태 새로고침',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // VIN 인증 상태
+            // VIN 인증 상태 카드
             _VinStatusCard(
               vin:        _vin,
               carModel:   _carModel,
               isVerified: _isVinVerified,
-              onRefresh:  _loadVinStatus,
             ),
             const SizedBox(height: 16),
+
+            // 미인증 안내 메시지
+            if (!_isVinVerified && !_isDriving) ...[
+              _UnverifiedBanner(),
+              const SizedBox(height: 12),
+            ],
 
             // 현재 안전점수
             _ScoreGaugeCard(
@@ -152,43 +196,45 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
               children: [
                 _SensorCard(
                   label: '속도',
-                  value: _currentSample != null
-                      ? '${_currentSample!.speed.toInt()}'
-                      : '--',
-                  unit:  'km/h',
-                  icon:  Icons.speed_rounded,
+                  value: _currentSample != null ? '${_currentSample!.speed.toInt()}' : '--',
+                  unit: 'km/h',
+                  icon: Icons.speed_rounded,
                   color: const Color(0xFF2563EB),
                 ),
                 _SensorCard(
                   label: 'RPM',
-                  value: _currentSample != null
-                      ? '${_currentSample!.rpm.toInt()}'
-                      : '--',
-                  unit:  'rpm',
-                  icon:  Icons.rotate_right_rounded,
+                  value: _currentSample != null ? '${_currentSample!.rpm.toInt()}' : '--',
+                  unit: 'rpm',
+                  icon: Icons.rotate_right_rounded,
                   color: const Color(0xFF1D9E75),
                 ),
                 _SensorCard(
                   label: '스로틀',
-                  value: _currentSample != null
-                      ? '${_currentSample!.throttle.toInt()}'
-                      : '--',
-                  unit:  '%',
-                  icon:  Icons.tune_rounded,
+                  value: _currentSample != null ? '${_currentSample!.throttle.toInt()}' : '--',
+                  unit: '%',
+                  icon: Icons.tune_rounded,
                   color: const Color(0xFFEF9F27),
                 ),
                 _SensorCard(
                   label: '엔진 부하',
-                  value: _currentSample != null
-                      ? '${_currentSample!.engineLoad.toInt()}'
-                      : '--',
-                  unit:  '%',
-                  icon:  Icons.memory_rounded,
+                  value: _currentSample != null ? '${_currentSample!.engineLoad.toInt()}' : '--',
+                  unit: '%',
+                  icon: Icons.memory_rounded,
                   color: const Color(0xFFD85A30),
                 ),
               ],
             ),
             const SizedBox(height: 16),
+
+            // Mock 시나리오 선택 (주행 중 또는 실제 OBD 연결 시 숨김)
+            // TODO: 실제 RealObdDataSource 사용 시 이 블록 전체 제거 또는 조건 추가
+            if (!_isDriving) ...[
+              _ScenarioSelector(
+                selected: _selectedScenario,
+                onChanged: (s) => setState(() => _selectedScenario = s),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // 주행 시작/종료 버튼
             _DriveControlButton(
@@ -212,9 +258,7 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
               const SizedBox(height: 8),
               ..._recentEvents.take(15).map((e) => _EventTile(event: e)),
             ],
-
-            if (_isDriving && _recentEvents.isEmpty)
-              const _EmptyEventHint(),
+            if (_isDriving && _recentEvents.isEmpty) const _EmptyEventHint(),
           ],
         ),
       ),
@@ -222,19 +266,13 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   }
 }
 
-// ── VIN 인증 상태 카드 ─────────────────────────────────────────────────────────
+// ── VIN 인증 상태 카드 ──────────────────────────────────────────────────────────
 class _VinStatusCard extends StatelessWidget {
   final String vin;
   final String carModel;
   final bool isVerified;
-  final VoidCallback onRefresh;
 
-  const _VinStatusCard({
-    required this.vin,
-    required this.carModel,
-    required this.isVerified,
-    required this.onRefresh,
-  });
+  const _VinStatusCard({required this.vin, required this.carModel, required this.isVerified});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -252,9 +290,7 @@ class _VinStatusCard extends StatelessWidget {
             Container(
               width: 40, height: 40,
               decoration: BoxDecoration(
-                color: isVerified
-                    ? const Color(0xFFE1F5EE)
-                    : Colors.orange.shade50,
+                color: isVerified ? const Color(0xFFE1F5EE) : Colors.orange.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -273,9 +309,7 @@ class _VinStatusCard extends StatelessWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: isVerified
-                          ? const Color(0xFF1D9E75)
-                          : Colors.orange,
+                      color: isVerified ? const Color(0xFF1D9E75) : Colors.orange,
                     ),
                   ),
                   if (isVerified && vin.isNotEmpty)
@@ -286,28 +320,47 @@ class _VinStatusCard extends StatelessWidget {
                     )
                   else
                     const Text(
-                      '차량 인증 화면에서 인증 후 이용 가능합니다',
+                      '온보딩에서 차량 인증을 완료해주세요',
                       style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                 ],
               ),
             ),
-            if (!isVerified)
-              IconButton(
-                onPressed: onRefresh,
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                color: Colors.grey,
-              ),
           ],
         ),
       );
 }
 
-// ── 점수 게이지 카드 ──────────────────────────────────────────────────────────
+// ── 미인증 안내 배너 ─────────────────────────────────────────────────────────────
+class _UnverifiedBanner extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: Colors.orange.shade700, size: 18),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                '차량 VIN 인증 후 주행 점수를 측정할 수 있습니다.',
+                style: TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+// ── 점수 게이지 카드 ─────────────────────────────────────────────────────────────
 class _ScoreGaugeCard extends StatelessWidget {
   final int score;
   final bool isDriving;
-
   const _ScoreGaugeCard({required this.score, required this.isDriving});
 
   Color get _scoreColor {
@@ -325,11 +378,7 @@ class _ScoreGaugeCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))
           ],
         ),
         child: Column(
@@ -347,10 +396,7 @@ class _ScoreGaugeCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   isDriving ? '주행 중 · 실시간 측정' : '주행 대기',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDriving ? const Color(0xFF1D9E75) : Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 12, color: isDriving ? const Color(0xFF1D9E75) : Colors.grey),
                 ),
               ],
             ),
@@ -358,17 +404,12 @@ class _ScoreGaugeCard extends StatelessWidget {
             Text(
               isDriving ? '$score' : '--',
               style: TextStyle(
-                fontSize: 72,
-                fontWeight: FontWeight.bold,
-                color: isDriving ? _scoreColor : Colors.grey[300],
-                height: 1,
+                fontSize: 72, fontWeight: FontWeight.bold,
+                color: isDriving ? _scoreColor : Colors.grey[300], height: 1,
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              '안전점수',
-              style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-            ),
+            Text('안전점수', style: TextStyle(fontSize: 13, color: Colors.grey[500])),
             if (isDriving && score < 100) ...[
               const SizedBox(height: 8),
               Container(
@@ -379,11 +420,7 @@ class _ScoreGaugeCard extends StatelessWidget {
                 ),
                 child: Text(
                   '총 ${100 - score}점 감점',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _scoreColor,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: _scoreColor, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -392,20 +429,14 @@ class _ScoreGaugeCard extends StatelessWidget {
       );
 }
 
-// ── 센서 카드 ─────────────────────────────────────────────────────────────────
+// ── 센서 카드 ────────────────────────────────────────────────────────────────────
 class _SensorCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
+  final String label, value, unit;
   final IconData icon;
   final Color color;
-
   const _SensorCard({
-    required this.label,
-    required this.value,
-    required this.unit,
-    required this.icon,
-    required this.color,
+    required this.label, required this.value, required this.unit,
+    required this.icon, required this.color,
   });
 
   @override
@@ -420,54 +451,74 @@ class _SensorCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 5),
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                ),
-              ],
+            Row(children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 5),
+              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+            ]),
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: color)),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(unit, style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+              ),
+            ]),
+          ],
+        ),
+      );
+}
+
+// ── Mock 시나리오 선택 ───────────────────────────────────────────────────────────
+// TODO: 실제 RealObdDataSource 전환 시 이 위젯을 제거하거나 'Mock 모드에서만 표시' 조건 추가
+class _ScenarioSelector extends StatelessWidget {
+  final MockDriveScenario selected;
+  final ValueChanged<MockDriveScenario> onChanged;
+  const _ScenarioSelector({required this.selected, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 32, height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEEEDFB),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.science_rounded, size: 16, color: Color(0xFF7F77DD)),
             ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    unit,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                  ),
-                ),
-              ],
+            const SizedBox(width: 12),
+            const Text('Mock 시나리오', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1B3A5C))),
+            const Spacer(),
+            DropdownButton<MockDriveScenario>(
+              value: selected,
+              underline: const SizedBox(),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF1B3A5C)),
+              items: MockDriveScenario.values
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
+                  .toList(),
+              onChanged: (s) { if (s != null) onChanged(s); },
             ),
           ],
         ),
       );
 }
 
-// ── 주행 시작/종료 버튼 ───────────────────────────────────────────────────────
+// ── 주행 시작/종료 버튼 ──────────────────────────────────────────────────────────
 class _DriveControlButton extends StatelessWidget {
-  final bool isDriving;
-  final bool isVinVerified;
+  final bool isDriving, isVinVerified;
   final VoidCallback onStart;
   final Future<void> Function() onStop;
-
   const _DriveControlButton({
-    required this.isDriving,
-    required this.isVinVerified,
-    required this.onStart,
-    required this.onStop,
+    required this.isDriving, required this.isVinVerified,
+    required this.onStart, required this.onStop,
   });
 
   @override
@@ -478,15 +529,11 @@ class _DriveControlButton extends StatelessWidget {
             ? ElevatedButton.icon(
                 onPressed: onStop,
                 icon: const Icon(Icons.stop_circle_rounded, color: Colors.white),
-                label: const Text(
-                  '주행 종료  →  최종 결과 보기',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
+                label: const Text('주행 종료  →  최종 결과 보기',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE53E3E),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
               )
             : ElevatedButton.icon(
@@ -494,37 +541,32 @@ class _DriveControlButton extends StatelessWidget {
                 icon: const Icon(Icons.play_circle_rounded, color: Colors.white),
                 label: Text(
                   isVinVerified ? '주행 시작' : 'VIN 인증 후 이용 가능',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF1B3A5C),
                   disabledBackgroundColor: Colors.grey[300],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
               ),
       );
 }
 
-// ── 이벤트 타일 ───────────────────────────────────────────────────────────────
+// ── 이벤트 타일 ──────────────────────────────────────────────────────────────────
 class _EventTile extends StatelessWidget {
   final DriveEvent event;
   const _EventTile({required this.event});
 
   IconData get _icon {
     switch (event.type) {
-      case EventType.harshAccel:   return Icons.arrow_upward_rounded;
-      case EventType.harshBrake:   return Icons.arrow_downward_rounded;
-      case EventType.hardStart:    return Icons.directions_car_rounded;
-      case EventType.highRpm:      return Icons.speed_rounded;
-      case EventType.throttleSpike: return Icons.tune_rounded;
-      case EventType.idling:       return Icons.timer_rounded;
+      case EventType.harshAccel:     return Icons.arrow_upward_rounded;
+      case EventType.harshBrake:     return Icons.arrow_downward_rounded;
+      case EventType.hardStart:      return Icons.directions_car_rounded;
+      case EventType.highRpm:        return Icons.speed_rounded;
+      case EventType.throttleSpike:  return Icons.tune_rounded;
+      case EventType.idling:         return Icons.timer_rounded;
       case EventType.engineOverload: return Icons.local_fire_department_rounded;
-      default:                     return Icons.warning_amber_rounded;
+      default:                       return Icons.warning_amber_rounded;
     }
   }
 
@@ -543,7 +585,6 @@ class _EventTile extends StatelessWidget {
     final time = '${ts.hour.toString().padLeft(2, '0')}:'
         '${ts.minute.toString().padLeft(2, '0')}:'
         '${ts.second.toString().padLeft(2, '0')}';
-
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -556,10 +597,7 @@ class _EventTile extends StatelessWidget {
         children: [
           Container(
             width: 32, height: 32,
-            decoration: BoxDecoration(
-              color: _color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
+            decoration: BoxDecoration(color: _color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
             child: Icon(_icon, size: 16, color: _color),
           ),
           const SizedBox(width: 12),
@@ -567,37 +605,18 @@ class _EventTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  event.title.isNotEmpty ? event.title : event.type.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: Color(0xFF1B3A5C),
-                  ),
-                ),
+                Text(event.title.isNotEmpty ? event.title : event.type.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF1B3A5C))),
                 if (event.description.isNotEmpty)
-                  Text(
-                    event.description,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                  ),
+                  Text(event.description, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
               ],
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                '-${event.penalty}점',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: _color,
-                ),
-              ),
-              Text(
-                time,
-                style: TextStyle(fontSize: 10, color: Colors.grey[400]),
-              ),
+              Text('-${event.penalty}점', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _color)),
+              Text(time, style: TextStyle(fontSize: 10, color: Colors.grey[400])),
             ],
           ),
         ],
@@ -608,7 +627,6 @@ class _EventTile extends StatelessWidget {
 
 class _EmptyEventHint extends StatelessWidget {
   const _EmptyEventHint();
-
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(vertical: 24),
@@ -617,11 +635,8 @@ class _EmptyEventHint extends StatelessWidget {
           children: [
             Icon(Icons.check_circle_outline_rounded, size: 36, color: Colors.green[300]),
             const SizedBox(height: 8),
-            const Text(
-              '감점 이벤트 없음\n안전 운전 중입니다',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
+            const Text('감점 이벤트 없음\n안전 운전 중입니다',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.grey)),
           ],
         ),
       );

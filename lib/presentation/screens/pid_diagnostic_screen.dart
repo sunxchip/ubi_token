@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../data/datasources/obd_datasource.dart';
 import '../../core/constants/obd_constants.dart';
+import '../../core/utils/obd_pid_parser.dart';
 
 /// 실차 검증용 PID 진단 화면
 /// - AT 명령 터미널: 직접 명령 입력 → 원시 응답 확인
@@ -50,10 +51,15 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     ('ATCAF1\nATCF 000\nATCM 000', '필터 초기화'),
   ];
 
+  // ── PID 파서 테스트 탭 ────────────────────────────────
+  final _customInputController = TextEditingController();
+  String _customPidType = 'RPM (010C)';
+  String _customParseResult = '';
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -61,6 +67,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     _tabController.dispose();
     _cmdController.dispose();
     _scrollCtrl.dispose();
+    _customInputController.dispose();
     _pollTimer?.cancel();
     super.dispose();
   }
@@ -224,21 +231,23 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           tabs: const [
             Tab(text: 'AT 터미널'),
             Tab(text: '라이브 모니터'),
+            Tab(text: 'PID 파서'),
           ],
         ),
       ),
-      body: !connected
-          ? const Center(
-              child: Text('OBD 장치에 먼저 연결해주세요',
-                  style: TextStyle(color: Colors.grey)),
-            )
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildTerminal(),
-                _buildLiveMonitor(),
-              ],
-            ),
+      // PID 파서 탭(인덱스 2)은 OBD 연결 없이도 사용 가능
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          !connected
+              ? const Center(child: Text('OBD 장치에 먼저 연결해주세요', style: TextStyle(color: Colors.grey)))
+              : _buildTerminal(),
+          !connected
+              ? const Center(child: Text('OBD 장치에 먼저 연결해주세요', style: TextStyle(color: Colors.grey)))
+              : _buildLiveMonitor(),
+          _buildPidParserTest(),
+        ],
+      ),
     );
   }
 
@@ -525,6 +534,177 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     );
   }
 
+  // ── PID 파서 테스트 탭 ─────────────────────────────────
+  /// OBD 연결 없이도 ELM327 응답 형식을 직접 입력해 파서가 올바르게
+  /// 동작하는지 확인할 수 있는 탭.
+  ///
+  /// 실차 연결 전 파서 검증, 비정상 응답 디버깅에 활용한다.
+  Widget _buildPidParserTest() {
+    final pidTypes = ['RPM (010C)', '속도 (010D)', '스로틀 (0111)', '엔진부하 (0104)'];
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 안내
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.4)),
+            ),
+            child: const Text(
+              'ELM327 응답 문자열을 직접 입력하면 파싱 결과를 확인할 수 있습니다.\n'
+              'OBD 연결 없이 동작하며, 실차 응답이 이상할 때 디버깅용으로 사용하세요.',
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 사전 정의 샘플 테스트
+          _buildSectionLabel('샘플 파싱 테스트  (사전 정의 케이스)'),
+          const SizedBox(height: 8),
+          ...ObdPidParser.sampleTestCases.map((tc) => _ParserTestRow(tc: tc)),
+          const SizedBox(height: 20),
+
+          // 직접 입력 테스트
+          _buildSectionLabel('직접 입력 테스트'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E293B),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // PID 종류 선택
+                Row(
+                  children: [
+                    const Text('PID 종류:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    const SizedBox(width: 12),
+                    DropdownButton<String>(
+                      value: _customPidType,
+                      dropdownColor: const Color(0xFF1E293B),
+                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12),
+                      underline: const SizedBox(),
+                      items: pidTypes
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _customPidType = v);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // 응답 입력
+                TextField(
+                  controller: _customInputController,
+                  style: const TextStyle(
+                    color: Color(0xFF4ADE80), fontFamily: 'monospace', fontSize: 13,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: '예: 410C1AF8  또는  7E8 04 41 0C 1A F8',
+                    hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+                    filled: true,
+                    fillColor: const Color(0xFF0F172A),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide.none,
+                    ),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  textCapitalization: TextCapitalization.characters,
+                ),
+                const SizedBox(height: 10),
+
+                // 파싱 버튼
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      final input = _customInputController.text.trim();
+                      if (input.isEmpty) return;
+                      String? result;
+                      if (_customPidType.startsWith('RPM')) {
+                        final v = ObdPidParser.parseRpm(input);
+                        result = v != null ? '${v.toStringAsFixed(1)} rpm' : null;
+                      } else if (_customPidType.startsWith('속도')) {
+                        final v = ObdPidParser.parseSpeed(input);
+                        result = v != null ? '${v.toStringAsFixed(1)} km/h' : null;
+                      } else if (_customPidType.startsWith('스로틀')) {
+                        final v = ObdPidParser.parseThrottle(input);
+                        result = v != null ? '${v.toStringAsFixed(1)}%' : null;
+                      } else {
+                        final v = ObdPidParser.parseEngineLoad(input);
+                        result = v != null ? '${v.toStringAsFixed(1)}%' : null;
+                      }
+                      setState(() {
+                        _customParseResult = result ?? '파싱 실패 — 응답 형식 확인 필요';
+                      });
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('파싱 실행', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+                if (_customParseResult.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _customParseResult.contains('실패')
+                          ? Colors.red.shade900.withValues(alpha: 0.4)
+                          : Colors.green.shade900.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '결과: $_customParseResult',
+                      style: TextStyle(
+                        color: _customParseResult.contains('실패')
+                            ? Colors.red.shade300
+                            : const Color(0xFF4ADE80),
+                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // 변환식 참고표
+          _buildSectionLabel('PID 변환식 참고'),
+          const SizedBox(height: 8),
+          _buildParseGuide(
+            'OBD-II 서비스01 응답 변환식',
+            'RPM (010C):       ((A×256)+B) / 4\n'
+            '속도 (010D):      A  (km/h)\n'
+            '스로틀 (0111):    A×100/255  (%)\n'
+            '엔진부하 (0104):  A×100/255  (%)\n'
+            '\n'
+            '응답 마커: 41 = 서비스01 응답, 다음 바이트 = PID\n'
+            '헤더 ON(ATH1): "7E8 LL 41 PID DATA..." 형식\n'
+            '헤더 OFF(ATH0): "41 PID DATA..." 형식',
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSectionLabel(String text) => Text(
         text,
         style: const TextStyle(
@@ -560,6 +740,72 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
 }
 
 // ── 공용 위젯 ──────────────────────────────────────────
+
+// ── PID 파서 테스트 행 위젯 ────────────────────────────────────────────────────
+class _ParserTestRow extends StatelessWidget {
+  final ParserTestCase tc;
+  const _ParserTestRow({required this.tc});
+
+  @override
+  Widget build(BuildContext context) {
+    final actual = tc.actualOutput;
+    final pass   = tc.isPass;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: pass ? Colors.green.shade700 : Colors.red.shade700,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                pass ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                size: 14,
+                color: pass ? Colors.green : Colors.red,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                tc.pid,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '입력: ${tc.rawInput}',
+            style: const TextStyle(color: Color(0xFF94A3B8), fontFamily: 'monospace', fontSize: 11),
+          ),
+          Text(
+            '기대: ${tc.expectedLabel}',
+            style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+          ),
+          Text(
+            '결과: $actual',
+            style: TextStyle(
+              color: pass ? const Color(0xFF4ADE80) : Colors.red.shade300,
+              fontFamily: 'monospace',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _TermEntry {
   final bool isSent;
