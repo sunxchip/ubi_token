@@ -2,6 +2,7 @@ import '../constants/obd_constants.dart';
 import '../../data/models/drive_event.dart';
 import '../../data/models/driving_sample.dart';
 import '../../data/models/score_result.dart';
+import 'drive_tracking_state_machine.dart';
 
 class ScoringUtils {
   // 이벤트 목록으로 최종 점수 산출 (100점 만점, 기존 대시보드용)
@@ -73,93 +74,132 @@ class DrivingScoreEngine {
   List<DriveEvent> get events => List.unmodifiable(_events);
 
   /// [current] 샘플과 직전 [previous] 샘플을 비교하여 이벤트를 판별한다.
+  ///
+  /// [trackingState] 에 따라 감점 항목이 달라진다:
+  ///   - driving           : 급가속·급감속·급출발·고RPM·스로틀급변·엔진과부하
+  ///   - engineOn·stopped  : 공회전 (speed <= 3 & rpm >= 700 이 60초 이상)
+  ///
   /// 새로 발생한 이벤트 목록을 반환한다.
-  List<DriveEvent> processSample(DrivingSample current, DrivingSample? previous) {
+  List<DriveEvent> processSample(
+    DrivingSample current,
+    DrivingSample? previous, {
+    DriveTrackingState trackingState = DriveTrackingState.driving,
+  }) {
     final newEvents = <DriveEvent>[];
     if (previous == null) return newEvents;
 
     final dt = current.timestamp.difference(previous.timestamp).inMilliseconds / 1000.0;
     if (dt <= 0) return newEvents;
 
-    // ── 가속도 계산 ────────────────────────────────────────────────────
-    // 급가속/급감속은 별도 OBD PID 없이 속도(010D) 변화량으로 계산
-    // acceleration = ((currentSpeed - prevSpeed) / 3.6) / deltaTimeSec  [m/s²]
-    final accel = ((current.speed - previous.speed) / 3.6) / dt;
+    // ── 주행 중 감점 항목 (driving 상태에서만) ────────────────────────────────
+    if (trackingState == DriveTrackingState.driving) {
+      // acceleration = ((currentSpeed - prevSpeed) / 3.6) / deltaTimeSec  [m/s²]
+      final accel = ((current.speed - previous.speed) / 3.6) / dt;
 
-    // A. 급가속 (acceleration >= 2.5 m/s²)
-    if (accel >= ObdConstants.harshAccelThreshold) {
-      final e = _tryAddEvent(
-        type: EventType.harshAccel,
-        title: '급가속',
-        description: '가속도 ${accel.toStringAsFixed(1)} m/s²',
-        penalty: ObdConstants.penaltyHarshAccel,
-        value: accel,
-      );
-      if (e != null) newEvents.add(e);
-    }
-
-    // B. 급감속 (acceleration <= -3.0 m/s²)
-    if (accel <= ObdConstants.harshBrakeThreshold) {
-      final e = _tryAddEvent(
-        type: EventType.harshBrake,
-        title: '급감속',
-        description: '감속도 ${accel.toStringAsFixed(1)} m/s²',
-        penalty: ObdConstants.penaltyHarshBrake,
-        value: accel,
-      );
-      if (e != null) newEvents.add(e);
-    }
-
-    // C. 급출발 (이전 속도 ≤ 3km/h + 스로틀 급변 ≥ 30% + RPM ≥ 3000)
-    final throttleDeltaRaw = current.throttle - previous.throttle;
-    if (previous.speed <= ObdConstants.idleSpeedThreshold &&
-        throttleDeltaRaw >= ObdConstants.throttleSpikeThreshold &&
-        current.rpm >= ObdConstants.hardStartRpmThreshold) {
-      final e = _tryAddEvent(
-        type: EventType.hardStart,
-        title: '급출발',
-        description: 'RPM ${current.rpm.toInt()}, 스로틀 +${throttleDeltaRaw.toInt()}%',
-        penalty: ObdConstants.penaltyHardStart,
-        value: current.rpm,
-      );
-      if (e != null) newEvents.add(e);
-    }
-
-    // D. 고RPM (3500rpm 이상 3초 이상 지속)
-    if (current.rpm >= ObdConstants.highRpmThreshold) {
-      _highRpmSeconds++;
-      if (_highRpmSeconds >= ObdConstants.highRpmDurationSec) {
+      // A. 급가속 (acceleration >= 2.5 m/s²)
+      if (accel >= ObdConstants.harshAccelThreshold) {
         final e = _tryAddEvent(
-          type: EventType.highRpm,
-          title: '고RPM 지속',
-          description: 'RPM ${current.rpm.toInt()} / ${_highRpmSeconds}초 지속',
-          penalty: ObdConstants.penaltyHighRpm,
+          type: EventType.harshAccel,
+          title: '급가속',
+          description: '가속도 ${accel.toStringAsFixed(1)} m/s²',
+          penalty: ObdConstants.penaltyHarshAccel,
+          value: accel,
+        );
+        if (e != null) newEvents.add(e);
+      }
+
+      // B. 급감속 (acceleration <= -3.0 m/s²)
+      if (accel <= ObdConstants.harshBrakeThreshold) {
+        final e = _tryAddEvent(
+          type: EventType.harshBrake,
+          title: '급감속',
+          description: '감속도 ${accel.toStringAsFixed(1)} m/s²',
+          penalty: ObdConstants.penaltyHarshBrake,
+          value: accel,
+        );
+        if (e != null) newEvents.add(e);
+      }
+
+      // C. 급출발 (이전 속도 ≤ 3km/h + 스로틀 급변 ≥ 30% + RPM ≥ 3000)
+      final throttleDeltaRaw = current.throttle - previous.throttle;
+      if (previous.speed <= ObdConstants.idleSpeedThreshold &&
+          throttleDeltaRaw >= ObdConstants.throttleSpikeThreshold &&
+          current.rpm >= ObdConstants.hardStartRpmThreshold) {
+        final e = _tryAddEvent(
+          type: EventType.hardStart,
+          title: '급출발',
+          description: 'RPM ${current.rpm.toInt()}, 스로틀 +${throttleDeltaRaw.toInt()}%',
+          penalty: ObdConstants.penaltyHardStart,
           value: current.rpm,
         );
-        if (e != null) {
-          newEvents.add(e);
-          _highRpmSeconds = 0; // 이벤트 발생 후 카운터 리셋
+        if (e != null) newEvents.add(e);
+      }
+
+      // D. 고RPM (3500rpm 이상 3초 이상 지속)
+      if (current.rpm >= ObdConstants.highRpmThreshold) {
+        _highRpmSeconds++;
+        if (_highRpmSeconds >= ObdConstants.highRpmDurationSec) {
+          final e = _tryAddEvent(
+            type: EventType.highRpm,
+            title: '고RPM 지속',
+            description: 'RPM ${current.rpm.toInt()} / ${_highRpmSeconds}초 지속',
+            penalty: ObdConstants.penaltyHighRpm,
+            value: current.rpm,
+          );
+          if (e != null) {
+            newEvents.add(e);
+            _highRpmSeconds = 0;
+          }
         }
+      } else {
+        _highRpmSeconds = 0;
+      }
+
+      // E. 스로틀 급변 (변화량 절댓값 ≥ 30%)
+      final throttleAbs = (current.throttle - previous.throttle).abs();
+      if (throttleAbs >= ObdConstants.throttleSpikeThreshold) {
+        final e = _tryAddEvent(
+          type: EventType.throttleSpike,
+          title: '스로틀 급변',
+          description: '변화량 ${throttleAbs.toInt()}%',
+          penalty: ObdConstants.penaltyThrottleSpike,
+          value: throttleAbs,
+        );
+        if (e != null) newEvents.add(e);
+      }
+
+      // G. 엔진 과부하 (부하율 ≥ 80% 이 5초 이상 지속)
+      if (current.engineLoad >= ObdConstants.engineLoadThreshold) {
+        _engineOverloadSeconds++;
+        if (_engineOverloadSeconds >= ObdConstants.engineOverloadDurationSec) {
+          final e = _tryAddEvent(
+            type: EventType.engineOverload,
+            title: '엔진 과부하',
+            description: '부하 ${current.engineLoad.toInt()}% / ${_engineOverloadSeconds}초 지속',
+            penalty: ObdConstants.penaltyEngineOverload,
+            value: current.engineLoad,
+          );
+          if (e != null) {
+            newEvents.add(e);
+            _engineOverloadSeconds = 0;
+          }
+        }
+      } else {
+        _engineOverloadSeconds = 0;
       }
     } else {
-      _highRpmSeconds = 0;
+      // driving 상태가 아니면 지속 이벤트 카운터 리셋
+      _highRpmSeconds        = 0;
+      _engineOverloadSeconds = 0;
     }
 
-    // E. 스로틀 급변 (변화량 절댓값 ≥ 30%)
-    final throttleAbs = (current.throttle - previous.throttle).abs();
-    if (throttleAbs >= ObdConstants.throttleSpikeThreshold) {
-      final e = _tryAddEvent(
-        type: EventType.throttleSpike,
-        title: '스로틀 급변',
-        description: '변화량 ${throttleAbs.toInt()}%',
-        penalty: ObdConstants.penaltyThrottleSpike,
-        value: throttleAbs,
-      );
-      if (e != null) newEvents.add(e);
-    }
-
-    // F. 공회전 (속도 ≤ 3km/h + RPM ≥ 700 이 60초 이상 지속)
-    if (current.speed <= ObdConstants.idleSpeedThreshold &&
+    // ── 공회전 감점 (engineOn·stopped 상태에서) ───────────────────────────────
+    // 일반 차량: 신호대기 중 RPM 600~900 유지 / ISG: RPM 0 가능
+    // 두 경우 모두 speed <= 3 + rpm >= 700 이 60초 이상이면 공회전 감점
+    final isIdlingState = trackingState == DriveTrackingState.engineOn ||
+                          trackingState == DriveTrackingState.stopped;
+    if (isIdlingState &&
+        current.speed <= ObdConstants.idleSpeedThreshold &&
         current.rpm >= ObdConstants.idleRpmThreshold) {
       _idlingSeconds++;
       if (_idlingSeconds >= ObdConstants.idlingDurationSec) {
@@ -177,26 +217,6 @@ class DrivingScoreEngine {
       }
     } else {
       _idlingSeconds = 0;
-    }
-
-    // G. 엔진 과부하 (부하율 ≥ 80% 이 5초 이상 지속)
-    if (current.engineLoad >= ObdConstants.engineLoadThreshold) {
-      _engineOverloadSeconds++;
-      if (_engineOverloadSeconds >= ObdConstants.engineOverloadDurationSec) {
-        final e = _tryAddEvent(
-          type: EventType.engineOverload,
-          title: '엔진 과부하',
-          description: '부하 ${current.engineLoad.toInt()}% / ${_engineOverloadSeconds}초 지속',
-          penalty: ObdConstants.penaltyEngineOverload,
-          value: current.engineLoad,
-        );
-        if (e != null) {
-          newEvents.add(e);
-          _engineOverloadSeconds = 0;
-        }
-      }
-    } else {
-      _engineOverloadSeconds = 0;
     }
 
     // TODO: ITS 교통소통정보 API를 활용해 현재 위치 기반 도로 제한속도 조회

@@ -6,6 +6,7 @@ import '../../data/models/driving_sample.dart';
 import '../../data/models/drive_event.dart';
 import '../../data/models/score_result.dart';
 import '../../core/utils/scoring_utils.dart';
+import '../../core/utils/drive_tracking_state_machine.dart';
 import '../../data/repositories/trip_session_repository.dart';
 import 'driving_score_result_screen.dart';
 
@@ -18,33 +19,32 @@ class DrivingScoreScreen extends StatefulWidget {
 
 class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   // ── VIN 인증 상태 ─────────────────────────────────────────────────────────
-  // VIN 인증 성공 시 vin_auth_screen.dart가 SharedPreferences에
-  // 'auth_token', 'vin', 'car_model' 키를 저장한다.
-  //
-  // TODO: 기존 VIN 인증 결과 Provider/Service/State와 연결
-  // TODO: 현재 임시로 SharedPreferences 기반 isVinVerified를 사용하며,
-  //       실제 VIN 인증 결과 상태 관리 클래스로 교체 필요
-  String _vin          = '';
-  String _carModel     = '';
+  String _vin       = '';
+  String _carModel  = '';
   bool   _isVinVerified = false;
 
-  // ── 주행 상태 ─────────────────────────────────────────────────────────────
-  bool _isDriving = false;
+  // ── 주행 추적 상태 머신 ──────────────────────────────────────────────────
+  final DriveTrackingStateMachine _stateMachine = DriveTrackingStateMachine();
+  DriveTrackingState _trackingState = DriveTrackingState.idle;
+
+  // ── 모니터링 / 세션 상태 ─────────────────────────────────────────────────
+  bool _isMonitoring = false; // OBD 스트림 수신 중
+  bool _isTripActive = false; // 점수 측정 세션 활성 (driving 상태)
+  bool _isEndingTrip = false; // 세션 종료 처리 중 (중복 방지)
+
   DrivingSample? _currentSample;
   DrivingSample? _prevSample;
-  DateTime? _startTime;
+  DateTime?      _tripStartTime;
   final List<DriveEvent> _recentEvents = [];
   final DrivingScoreEngine _scoreEngine = DrivingScoreEngine();
 
-  // ── 시나리오 선택 ─────────────────────────────────────────────────────────
-  // TODO: 실제 RealObdDataSource로 전환 시 이 변수와 시나리오 드롭다운 UI를 숨길 것
+  // ── Mock 시나리오 ─────────────────────────────────────────────────────────
+  // TODO: 실제 RealObdDataSource 전환 시 이 변수와 드롭다운 UI를 제거할 것
   MockDriveScenario _selectedScenario = MockDriveScenario.risky;
 
   // ── 데이터 소스 ───────────────────────────────────────────────────────────
-  // TODO: 실제 ELM327 연결 시 아래 한 줄만 교체
-  //   변경 전: DrivingDataSource _dataSource = MockObdDataSource(scenario: _selectedScenario);
-  //   변경 후: DrivingDataSource _dataSource = RealObdDataSource(ObdDatasource.connected!);
-  DrivingDataSource? _dataSource;
+  // TODO: 실제 ELM327 연결 시 RealObdDataSource로 교체
+  DrivingDataSource?         _dataSource;
   StreamSubscription<DrivingSample>? _subscription;
 
   @override
@@ -53,42 +53,89 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
     _loadVinStatus();
   }
 
-  /// SharedPreferences에서 VIN 인증 상태 로드
-  /// VIN 인증 성공 조건: auth_token이 비어 있지 않고 vin이 존재
   Future<void> _loadVinStatus() async {
     final prefs     = await SharedPreferences.getInstance();
     final authToken = prefs.getString('auth_token') ?? '';
     final vin       = prefs.getString('vin')        ?? '';
     final carModel  = prefs.getString('car_model')  ?? '';
-
     setState(() {
-      _vin           = vin;
-      _carModel      = carModel;
+      _vin          = vin;
+      _carModel     = carModel;
       _isVinVerified = authToken.isNotEmpty && vin.isNotEmpty;
     });
   }
 
-  // ── 주행 시작 ─────────────────────────────────────────────────────────────
-  void _startDriving() {
-    if (!_isVinVerified) return;
+  // ── 모니터링 시작 ─────────────────────────────────────────────────────────
+  /// OBD 스트림을 구독하고 상태 머신을 시작한다.
+  /// 실제 ELM327 연결 시에는 연결 직후 자동으로 호출될 수 있다.
+  void _startMonitoring() {
+    if (_isMonitoring || !_isVinVerified) return;
 
     _dataSource = MockObdDataSource(scenario: _selectedScenario);
+    _stateMachine.reset();
     _scoreEngine.reset();
-    _startTime = DateTime.now();
 
     setState(() {
-      _isDriving     = true;
+      _isMonitoring  = true;
+      _isTripActive  = false;
+      _trackingState = DriveTrackingState.idle;
       _currentSample = null;
       _prevSample    = null;
       _recentEvents.clear();
     });
 
-    _subscription = _dataSource!.watchDrivingData(_vin).listen((sample) {
-      if (!mounted) return;
-      final newEvents = _scoreEngine.processSample(sample, _prevSample);
+    _subscription = _dataSource!.watchDrivingData(_vin).listen(_onSample);
+  }
+
+  // ── 모니터링 중지 (수동) ──────────────────────────────────────────────────
+  Future<void> _stopMonitoring() async {
+    if (_isTripActive) {
+      // 세션 활성 중이면 세션도 함께 종료
+      await _endTrip();
+    }
+    await _subscription?.cancel();
+    _subscription = null;
+    _dataSource?.dispose();
+    _dataSource = null;
+
+    if (mounted) {
+      setState(() {
+        _isMonitoring  = false;
+        _isTripActive  = false;
+        _trackingState = DriveTrackingState.idle;
+      });
+    }
+  }
+
+  // ── 샘플 수신 → 상태 머신 처리 ───────────────────────────────────────────
+  void _onSample(DrivingSample sample) {
+    if (!mounted) return;
+
+    final transition = _stateMachine.process(
+      sample,
+      isObdConnected: true, // TODO: 실제 연결 시 BLE 연결 상태 전달
+    );
+
+    // 상태 전이 처리
+    if (transition != null) {
+      _handleTransition(transition, sample);
+    }
+
+    // 현재 상태에 맞는 점수 계산 (세션 활성 or 공회전 감지 구간)
+    final shouldScore = _isTripActive ||
+        _trackingState == DriveTrackingState.engineOn ||
+        _trackingState == DriveTrackingState.stopped;
+
+    if (shouldScore) {
+      final newEvents = _scoreEngine.processSample(
+        sample,
+        _prevSample,
+        trackingState: _stateMachine.state,
+      );
       setState(() {
         _prevSample    = _currentSample;
         _currentSample = sample;
+        _trackingState = _stateMachine.state;
         if (newEvents.isNotEmpty) {
           _recentEvents.insertAll(0, newEvents);
           if (_recentEvents.length > 30) {
@@ -96,11 +143,48 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
           }
         }
       });
-    });
+    } else {
+      setState(() {
+        _prevSample    = _currentSample;
+        _currentSample = sample;
+        _trackingState = _stateMachine.state;
+      });
+    }
   }
 
-  // ── 주행 종료 ─────────────────────────────────────────────────────────────
-  Future<void> _stopDriving() async {
+  // ── 상태 전이 이벤트 처리 ─────────────────────────────────────────────────
+  void _handleTransition(DriveTrackingState next, DrivingSample sample) {
+    switch (next) {
+      case DriveTrackingState.driving:
+        if (!_isTripActive) {
+          // 최초 driving 진입 → 세션 시작
+          _scoreEngine.reset();
+          _tripStartTime = DateTime.now();
+          setState(() => _isTripActive = true);
+        }
+        break;
+
+      case DriveTrackingState.tripEnded:
+        if (_isTripActive && !_isEndingTrip) {
+          _endTrip(); // 자동 세션 종료
+        }
+        break;
+
+      case DriveTrackingState.stopped:
+        // 세션 유지, 공회전 카운터는 scoring_utils가 관리
+        break;
+
+      case DriveTrackingState.engineOn:
+      case DriveTrackingState.idle:
+        break;
+    }
+  }
+
+  // ── 세션 종료 (자동 or 수동) ──────────────────────────────────────────────
+  Future<void> _endTrip() async {
+    if (_isEndingTrip) return;
+    setState(() => _isEndingTrip = true);
+
     await _subscription?.cancel();
     _subscription = null;
     _dataSource?.dispose();
@@ -108,16 +192,21 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
 
     final endTime = DateTime.now();
     final result  = _scoreEngine.buildResult();
-    setState(() => _isDriving = false);
+
+    setState(() {
+      _isMonitoring  = false;
+      _isTripActive  = false;
+      _isEndingTrip  = false;
+      _trackingState = DriveTrackingState.idle;
+    });
 
     // DB 저장 (실패해도 결과 화면은 정상 표시)
     try {
       await TripSessionRepository.instance.saveScoreResult(
         result:    result,
         vin:       _vin,
-        startTime: _startTime ?? endTime,
+        startTime: _tripStartTime ?? endTime,
         endTime:   endTime,
-        sampleCount: _currentSample != null ? 1 : 0, // 추후 누적 카운터로 교체
       );
     } catch (_) {}
 
@@ -127,7 +216,7 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
       MaterialPageRoute(
         builder: (_) => DrivingScoreResultScreen(
           result:    result,
-          startTime: _startTime,
+          startTime: _tripStartTime,
           endTime:   endTime,
         ),
       ),
@@ -154,7 +243,7 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, size: 20),
-            onPressed: _isDriving ? null : _loadVinStatus,
+            onPressed: _isMonitoring ? null : _loadVinStatus,
             tooltip: 'VIN 상태 새로고침',
           ),
         ],
@@ -165,24 +254,23 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // VIN 인증 상태 카드
-            _VinStatusCard(
-              vin:        _vin,
-              carModel:   _carModel,
-              isVerified: _isVinVerified,
-            ),
-            const SizedBox(height: 16),
+            _VinStatusCard(vin: _vin, carModel: _carModel, isVerified: _isVinVerified),
+            const SizedBox(height: 12),
 
-            // 미인증 안내 메시지
-            if (!_isVinVerified && !_isDriving) ...[
+            // 미인증 안내
+            if (!_isVinVerified) ...[
               _UnverifiedBanner(),
               const SizedBox(height: 12),
             ],
 
+            // 주행 추적 상태 배지
+            if (_isMonitoring) ...[
+              _TrackingStateBadge(state: _trackingState),
+              const SizedBox(height: 12),
+            ],
+
             // 현재 안전점수
-            _ScoreGaugeCard(
-              score:     _scoreEngine.score,
-              isDriving: _isDriving,
-            ),
+            _ScoreGaugeCard(score: _scoreEngine.score, isTripActive: _isTripActive),
             const SizedBox(height: 16),
 
             // 센서 데이터 4개
@@ -226,9 +314,9 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Mock 시나리오 선택 (주행 중 또는 실제 OBD 연결 시 숨김)
-            // TODO: 실제 RealObdDataSource 사용 시 이 블록 전체 제거 또는 조건 추가
-            if (!_isDriving) ...[
+            // Mock 시나리오 선택 (모니터링 전에만 표시)
+            // TODO: 실제 RealObdDataSource 전환 시 제거
+            if (!_isMonitoring) ...[
               _ScenarioSelector(
                 selected: _selectedScenario,
                 onChanged: (s) => setState(() => _selectedScenario = s),
@@ -236,12 +324,13 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
               const SizedBox(height: 12),
             ],
 
-            // 주행 시작/종료 버튼
-            _DriveControlButton(
-              isDriving:     _isDriving,
+            // 모니터링 시작/중지 버튼
+            _MonitoringButton(
+              isMonitoring:  _isMonitoring,
+              isTripActive:  _isTripActive,
               isVinVerified: _isVinVerified,
-              onStart:       _startDriving,
-              onStop:        _stopDriving,
+              onStart:       _startMonitoring,
+              onStop:        _stopMonitoring,
             ),
             const SizedBox(height: 16),
 
@@ -249,16 +338,12 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
             if (_recentEvents.isNotEmpty) ...[
               const Text(
                 '감점 이벤트',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                  color: Color(0xFF1B3A5C),
-                ),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1B3A5C)),
               ),
               const SizedBox(height: 8),
               ..._recentEvents.take(15).map((e) => _EventTile(event: e)),
             ],
-            if (_isDriving && _recentEvents.isEmpty) const _EmptyEventHint(),
+            if (_isTripActive && _recentEvents.isEmpty) const _EmptyEventHint(),
           ],
         ),
       ),
@@ -266,12 +351,78 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   }
 }
 
-// ── VIN 인증 상태 카드 ──────────────────────────────────────────────────────────
+// ── 주행 추적 상태 배지 ───────────────────────────────────────────────────────
+class _TrackingStateBadge extends StatelessWidget {
+  final DriveTrackingState state;
+  const _TrackingStateBadge({required this.state});
+
+  Color get _color {
+    switch (state) {
+      case DriveTrackingState.idle:      return Colors.grey;
+      case DriveTrackingState.engineOn:  return const Color(0xFFEF9F27);
+      case DriveTrackingState.driving:   return const Color(0xFF1D9E75);
+      case DriveTrackingState.stopped:   return const Color(0xFF2563EB);
+      case DriveTrackingState.tripEnded: return const Color(0xFFE53E3E);
+    }
+  }
+
+  IconData get _icon {
+    switch (state) {
+      case DriveTrackingState.idle:      return Icons.radio_button_unchecked;
+      case DriveTrackingState.engineOn:  return Icons.key_rounded;
+      case DriveTrackingState.driving:   return Icons.directions_car_rounded;
+      case DriveTrackingState.stopped:   return Icons.pause_circle_rounded;
+      case DriveTrackingState.tripEnded: return Icons.flag_rounded;
+    }
+  }
+
+  String get _description {
+    switch (state) {
+      case DriveTrackingState.idle:      return 'OBD 신호 대기 중';
+      case DriveTrackingState.engineOn:  return '시동 감지 · 출발 대기 (5km/h 이상 3초 유지 시 측정 시작)';
+      case DriveTrackingState.driving:   return '안전점수 실시간 측정 중';
+      case DriveTrackingState.stopped:   return '정차 중 · 세션 유지 (5분 초과 또는 시동 꺼지면 종료)';
+      case DriveTrackingState.tripEnded: return '주행 세션 종료';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: _color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _color.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Icon(_icon, size: 18, color: _color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    state.label,
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _color),
+                  ),
+                  Text(
+                    _description,
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
+// ── VIN 인증 상태 카드 ────────────────────────────────────────────────────────
 class _VinStatusCard extends StatelessWidget {
   final String vin;
   final String carModel;
   final bool isVerified;
-
   const _VinStatusCard({required this.vin, required this.carModel, required this.isVerified});
 
   @override
@@ -307,8 +458,7 @@ class _VinStatusCard extends StatelessWidget {
                   Text(
                     isVerified ? 'VIN 인증 완료' : 'VIN 인증 필요',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+                      fontWeight: FontWeight.bold, fontSize: 14,
                       color: isVerified ? const Color(0xFF1D9E75) : Colors.orange,
                     ),
                   ),
@@ -331,7 +481,7 @@ class _VinStatusCard extends StatelessWidget {
       );
 }
 
-// ── 미인증 안내 배너 ─────────────────────────────────────────────────────────────
+// ── 미인증 안내 배너 ──────────────────────────────────────────────────────────
 class _UnverifiedBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
@@ -357,11 +507,11 @@ class _UnverifiedBanner extends StatelessWidget {
       );
 }
 
-// ── 점수 게이지 카드 ─────────────────────────────────────────────────────────────
+// ── 점수 게이지 카드 ──────────────────────────────────────────────────────────
 class _ScoreGaugeCard extends StatelessWidget {
   final int score;
-  final bool isDriving;
-  const _ScoreGaugeCard({required this.score, required this.isDriving});
+  final bool isTripActive;
+  const _ScoreGaugeCard({required this.score, required this.isTripActive});
 
   Color get _scoreColor {
     if (score >= 90) return const Color(0xFF1D9E75);
@@ -389,28 +539,28 @@ class _ScoreGaugeCard extends StatelessWidget {
                 Container(
                   width: 8, height: 8,
                   decoration: BoxDecoration(
-                    color: isDriving ? const Color(0xFF1D9E75) : Colors.grey[300],
+                    color: isTripActive ? const Color(0xFF1D9E75) : Colors.grey[300],
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  isDriving ? '주행 중 · 실시간 측정' : '주행 대기',
-                  style: TextStyle(fontSize: 12, color: isDriving ? const Color(0xFF1D9E75) : Colors.grey),
+                  isTripActive ? '주행 중 · 실시간 측정' : '주행 대기',
+                  style: TextStyle(fontSize: 12, color: isTripActive ? const Color(0xFF1D9E75) : Colors.grey),
                 ),
               ],
             ),
             const SizedBox(height: 12),
             Text(
-              isDriving ? '$score' : '--',
+              isTripActive ? '$score' : '--',
               style: TextStyle(
                 fontSize: 72, fontWeight: FontWeight.bold,
-                color: isDriving ? _scoreColor : Colors.grey[300], height: 1,
+                color: isTripActive ? _scoreColor : Colors.grey[300], height: 1,
               ),
             ),
             const SizedBox(height: 4),
             Text('안전점수', style: TextStyle(fontSize: 13, color: Colors.grey[500])),
-            if (isDriving && score < 100) ...[
+            if (isTripActive && score < 100) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -429,7 +579,7 @@ class _ScoreGaugeCard extends StatelessWidget {
       );
 }
 
-// ── 센서 카드 ────────────────────────────────────────────────────────────────────
+// ── 센서 카드 ─────────────────────────────────────────────────────────────────
 class _SensorCard extends StatelessWidget {
   final String label, value, unit;
   final IconData icon;
@@ -469,8 +619,8 @@ class _SensorCard extends StatelessWidget {
       );
 }
 
-// ── Mock 시나리오 선택 ───────────────────────────────────────────────────────────
-// TODO: 실제 RealObdDataSource 전환 시 이 위젯을 제거하거나 'Mock 모드에서만 표시' 조건 추가
+// ── Mock 시나리오 선택 ────────────────────────────────────────────────────────
+// TODO: 실제 RealObdDataSource 전환 시 제거
 class _ScenarioSelector extends StatelessWidget {
   final MockDriveScenario selected;
   final ValueChanged<MockDriveScenario> onChanged;
@@ -511,48 +661,78 @@ class _ScenarioSelector extends StatelessWidget {
       );
 }
 
-// ── 주행 시작/종료 버튼 ──────────────────────────────────────────────────────────
-class _DriveControlButton extends StatelessWidget {
-  final bool isDriving, isVinVerified;
+// ── 모니터링 시작/중지 버튼 ───────────────────────────────────────────────────
+class _MonitoringButton extends StatelessWidget {
+  final bool isMonitoring, isTripActive, isVinVerified;
   final VoidCallback onStart;
   final Future<void> Function() onStop;
-  const _DriveControlButton({
-    required this.isDriving, required this.isVinVerified,
-    required this.onStart, required this.onStop,
+
+  const _MonitoringButton({
+    required this.isMonitoring, required this.isTripActive,
+    required this.isVinVerified, required this.onStart, required this.onStop,
   });
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-        width: double.infinity,
-        height: 54,
-        child: isDriving
-            ? ElevatedButton.icon(
+  Widget build(BuildContext context) {
+    if (isMonitoring) {
+      return Column(
+        children: [
+          // 세션 활성 중이면 "지금 종료" 버튼 표시
+          if (isTripActive)
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton.icon(
                 onPressed: onStop,
                 icon: const Icon(Icons.stop_circle_rounded, color: Colors.white),
-                label: const Text('주행 종료  →  최종 결과 보기',
+                label: const Text('지금 종료  →  결과 보기',
                     style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE53E3E),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-              )
-            : ElevatedButton.icon(
-                onPressed: isVinVerified ? onStart : null,
-                icon: const Icon(Icons.play_circle_rounded, color: Colors.white),
-                label: Text(
-                  isVinVerified ? '주행 시작' : 'VIN 인증 후 이용 가능',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B3A5C),
-                  disabledBackgroundColor: Colors.grey[300],
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
               ),
+            ),
+          if (isTripActive) const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: onStop,
+              icon: const Icon(Icons.sensors_off_rounded, size: 18),
+              label: const Text('모니터링 중지', style: TextStyle(fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.grey[600],
+                side: BorderSide(color: Colors.grey[400]!),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+          ),
+        ],
       );
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton.icon(
+        onPressed: isVinVerified ? onStart : null,
+        icon: const Icon(Icons.sensors_rounded, color: Colors.white),
+        label: Text(
+          isVinVerified ? '모니터링 시작 (자동 주행 감지)' : 'VIN 인증 후 이용 가능',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF1B3A5C),
+          disabledBackgroundColor: Colors.grey[300],
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+    );
+  }
 }
 
-// ── 이벤트 타일 ──────────────────────────────────────────────────────────────────
+// ── 이벤트 타일 ───────────────────────────────────────────────────────────────
 class _EventTile extends StatelessWidget {
   final DriveEvent event;
   const _EventTile({required this.event});
