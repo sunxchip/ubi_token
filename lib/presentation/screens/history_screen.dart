@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/database/app_database.dart';
+import '../widgets/app_colors.dart';
+import '../widgets/app_text_styles.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -36,95 +38,119 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return '$minutes분';
   }
 
+  Color _scoreColor(int score) {
+    if (score >= 90) return AppColors.success;
+    if (score >= 70) return AppColors.warning;
+    return AppColors.danger;
+  }
+
+  Color _scoreBg(int score) {
+    if (score >= 90) return AppColors.successLight;
+    if (score >= 70) return AppColors.warningLight;
+    return AppColors.dangerLight;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('주행 이력'),
-        backgroundColor: Colors.white,
+        title: const Text('주행 이력', style: AppTextStyles.h2),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
       body: FutureBuilder<List<TripSession>>(
         future: _sessionsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
           }
           final sessions = snapshot.data ?? [];
           if (sessions.isEmpty) {
             return const Center(
-              child: Text(
-                '주행 기록이 없습니다',
-                style: TextStyle(color: Colors.grey),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.history, size: 40, color: AppColors.textHint),
+                  SizedBox(height: 12),
+                  Text('주행 기록이 없습니다', style: AppTextStyles.bodySecondary),
+                ],
               ),
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(16),
             itemCount: sessions.length,
             itemBuilder: (context, index) {
               final session = sessions[index];
               final score = session.finalScore;
+              final isActive = session.endTime == null;
               return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: score >= 90
-                            ? Colors.green
-                            : score >= 70
-                            ? const Color(0xFFEF9F27)
-                            : Colors.red,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _formatDate(session.startTime),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      // 점수 뱃지
+                      Container(
+                        width: 44, height: 44,
+                        decoration: BoxDecoration(
+                          color: _scoreBg(score),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '$score',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[500],
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: _scoreColor(score),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${session.distanceKm.toStringAsFixed(1)} km · ${_formatDuration(session.startTime, session.endTime)}',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1B3A5C),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  _formatDate(session.startTime),
+                                  style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                if (isActive) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.successLight,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('주행 중', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.success)),
+                                  ),
+                                ],
+                              ],
                             ),
-                          ),
-                        ],
+                            const SizedBox(height: 3),
+                            Text(
+                              '${session.distanceKm.toStringAsFixed(1)} km · ${_formatDuration(session.startTime, session.endTime)}',
+                              style: AppTextStyles.caption,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    Text(
-                      '$score점',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: score >= 90
-                            ? Colors.green
-                            : score >= 70
-                            ? const Color(0xFFEF9F27)
-                            : Colors.red,
-                      ),
-                    ),
-                  ],
+                      Icon(Icons.chevron_right, size: 18, color: AppColors.textHint),
+                    ],
+                  ),
                 ),
               );
             },

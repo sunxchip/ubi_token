@@ -9,6 +9,8 @@ import '../../core/utils/scoring_utils.dart';
 import '../../core/utils/drive_tracking_state_machine.dart';
 import '../../data/repositories/trip_session_repository.dart';
 import 'driving_score_result_screen.dart';
+import '../widgets/app_colors.dart';
+import '../widgets/app_text_styles.dart';
 
 class DrivingScoreScreen extends StatefulWidget {
   const DrivingScoreScreen({super.key});
@@ -234,85 +236,85 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('안전점수 모니터', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1B3A5C),
+        title: const Text('안전점수 모니터', style: AppTextStyles.h2),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh_rounded, size: 20),
+            icon: const Icon(Icons.refresh_rounded, size: 20, color: AppColors.textSecondary),
             onPressed: _isMonitoring ? null : _loadVinStatus,
             tooltip: 'VIN 상태 새로고침',
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // VIN 인증 상태 카드
             _VinStatusCard(vin: _vin, carModel: _carModel, isVerified: _isVinVerified),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
             // 미인증 안내
             if (!_isVinVerified) ...[
               _UnverifiedBanner(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
             ],
 
             // 주행 추적 상태 배지
             if (_isMonitoring) ...[
               _TrackingStateBadge(state: _trackingState),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
             ],
 
             // 현재 안전점수
             _ScoreGaugeCard(score: _scoreEngine.score, isTripActive: _isTripActive),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // 센서 데이터 4개
             GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.4,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.5,
               children: [
                 _SensorCard(
                   label: '속도',
                   value: _currentSample != null ? '${_currentSample!.speed.toInt()}' : '--',
                   unit: 'km/h',
                   icon: Icons.speed_rounded,
-                  color: const Color(0xFF2563EB),
+                  color: AppColors.primary,
                 ),
                 _SensorCard(
                   label: 'RPM',
                   value: _currentSample != null ? '${_currentSample!.rpm.toInt()}' : '--',
                   unit: 'rpm',
                   icon: Icons.rotate_right_rounded,
-                  color: const Color(0xFF1D9E75),
+                  color: AppColors.success,
                 ),
                 _SensorCard(
                   label: '스로틀',
                   value: _currentSample != null ? '${_currentSample!.throttle.toInt()}' : '--',
                   unit: '%',
                   icon: Icons.tune_rounded,
-                  color: const Color(0xFFEF9F27),
+                  color: AppColors.warning,
                 ),
                 _SensorCard(
                   label: '엔진 부하',
                   value: _currentSample != null ? '${_currentSample!.engineLoad.toInt()}' : '--',
                   unit: '%',
                   icon: Icons.memory_rounded,
-                  color: const Color(0xFFD85A30),
+                  color: AppColors.danger,
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // Mock 시나리오 선택 (모니터링 전에만 표시)
             // TODO: 실제 RealObdDataSource 전환 시 제거
@@ -321,7 +323,7 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
                 selected: _selectedScenario,
                 onChanged: (s) => setState(() => _selectedScenario = s),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
             ],
 
             // 모니터링 시작/중지 버튼
@@ -332,14 +334,11 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
               onStart:       _startMonitoring,
               onStop:        _stopMonitoring,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
 
             // 감점 이벤트 목록
             if (_recentEvents.isNotEmpty) ...[
-              const Text(
-                '감점 이벤트',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF1B3A5C)),
-              ),
+              const Text('감점 이벤트', style: AppTextStyles.h3),
               const SizedBox(height: 8),
               ..._recentEvents.take(15).map((e) => _EventTile(event: e)),
             ],
@@ -358,11 +357,11 @@ class _TrackingStateBadge extends StatelessWidget {
 
   Color get _color {
     switch (state) {
-      case DriveTrackingState.idle:      return Colors.grey;
-      case DriveTrackingState.engineOn:  return const Color(0xFFEF9F27);
-      case DriveTrackingState.driving:   return const Color(0xFF1D9E75);
-      case DriveTrackingState.stopped:   return const Color(0xFF2563EB);
-      case DriveTrackingState.tripEnded: return const Color(0xFFE53E3E);
+      case DriveTrackingState.idle:      return AppColors.textSecondary;
+      case DriveTrackingState.engineOn:  return AppColors.warning;
+      case DriveTrackingState.driving:   return AppColors.success;
+      case DriveTrackingState.stopped:   return AppColors.primary;
+      case DriveTrackingState.tripEnded: return AppColors.danger;
     }
   }
 
@@ -391,12 +390,12 @@ class _TrackingStateBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: _color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _color.withValues(alpha: 0.3)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _color.withValues(alpha: 0.25)),
         ),
         child: Row(
           children: [
-            Icon(_icon, size: 18, color: _color),
+            Icon(_icon, size: 16, color: _color),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -404,11 +403,11 @@ class _TrackingStateBadge extends StatelessWidget {
                 children: [
                   Text(
                     state.label,
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _color),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _color),
                   ),
                   Text(
                     _description,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: AppTextStyles.captionHint,
                   ),
                 ],
               ),
@@ -427,30 +426,30 @@ class _VinStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isVerified ? const Color(0xFF1D9E75) : Colors.orange,
-            width: 1.5,
+            color: isVerified ? AppColors.success.withValues(alpha: 0.4) : AppColors.warning.withValues(alpha: 0.4),
           ),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Row(
           children: [
             Container(
-              width: 40, height: 40,
+              width: 38, height: 38,
               decoration: BoxDecoration(
-                color: isVerified ? const Color(0xFFE1F5EE) : Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(10),
+                color: isVerified ? AppColors.successLight : AppColors.warningLight,
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 isVerified ? Icons.verified_rounded : Icons.warning_rounded,
-                color: isVerified ? const Color(0xFF1D9E75) : Colors.orange,
-                size: 22,
+                color: isVerified ? AppColors.success : AppColors.warning,
+                size: 20,
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -458,20 +457,20 @@ class _VinStatusCard extends StatelessWidget {
                   Text(
                     isVerified ? 'VIN 인증 완료' : 'VIN 인증 필요',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 14,
-                      color: isVerified ? const Color(0xFF1D9E75) : Colors.orange,
+                      fontWeight: FontWeight.w600, fontSize: 14,
+                      color: isVerified ? AppColors.success : AppColors.warning,
                     ),
                   ),
                   if (isVerified && vin.isNotEmpty)
                     Text(
                       '${carModel.isNotEmpty ? '$carModel · ' : ''}$vin',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: AppTextStyles.captionHint,
                       overflow: TextOverflow.ellipsis,
                     )
                   else
                     const Text(
                       '온보딩에서 차량 인증을 완료해주세요',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      style: AppTextStyles.captionHint,
                     ),
                 ],
               ),
@@ -486,20 +485,20 @@ class _UnverifiedBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.orange.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade200),
+          color: AppColors.warningLight,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
         ),
-        child: Row(
+        child: const Row(
           children: [
-            Icon(Icons.info_outline_rounded, color: Colors.orange.shade700, size: 18),
-            const SizedBox(width: 10),
-            const Expanded(
+            Icon(Icons.info_outline_rounded, color: AppColors.warning, size: 16),
+            SizedBox(width: 8),
+            Expanded(
               child: Text(
                 '차량 VIN 인증 후 주행 점수를 측정할 수 있습니다.',
-                style: TextStyle(fontSize: 13, color: Colors.black87),
+                style: TextStyle(fontSize: 13, color: AppColors.textPrimary),
               ),
             ),
           ],
@@ -514,22 +513,20 @@ class _ScoreGaugeCard extends StatelessWidget {
   const _ScoreGaugeCard({required this.score, required this.isTripActive});
 
   Color get _scoreColor {
-    if (score >= 90) return const Color(0xFF1D9E75);
-    if (score >= 70) return const Color(0xFFEF9F27);
-    return const Color(0xFFE53E3E);
+    if (score >= 90) return AppColors.success;
+    if (score >= 70) return AppColors.warning;
+    return AppColors.danger;
   }
 
   @override
   Widget build(BuildContext context) => Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2))
-          ],
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1))],
         ),
         child: Column(
           children: [
@@ -537,29 +534,32 @@ class _ScoreGaugeCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  width: 8, height: 8,
+                  width: 7, height: 7,
                   decoration: BoxDecoration(
-                    color: isTripActive ? const Color(0xFF1D9E75) : Colors.grey[300],
+                    color: isTripActive ? AppColors.success : AppColors.border,
                     shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   isTripActive ? '주행 중 · 실시간 측정' : '주행 대기',
-                  style: TextStyle(fontSize: 12, color: isTripActive ? const Color(0xFF1D9E75) : Colors.grey),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isTripActive ? AppColors.success : AppColors.textHint,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
               isTripActive ? '$score' : '--',
               style: TextStyle(
-                fontSize: 72, fontWeight: FontWeight.bold,
-                color: isTripActive ? _scoreColor : Colors.grey[300], height: 1,
+                fontSize: 64, fontWeight: FontWeight.w700,
+                color: isTripActive ? _scoreColor : AppColors.border, height: 1,
               ),
             ),
             const SizedBox(height: 4),
-            Text('안전점수', style: TextStyle(fontSize: 13, color: Colors.grey[500])),
+            const Text('안전점수', style: AppTextStyles.captionHint),
             if (isTripActive && score < 100) ...[
               const SizedBox(height: 8),
               Container(
@@ -591,27 +591,28 @@ class _SensorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(children: [
-              Icon(icon, size: 14, color: color),
+              Icon(icon, size: 13, color: color),
               const SizedBox(width: 5),
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              Text(label, style: AppTextStyles.caption),
             ]),
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: color)),
+              Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: color)),
               const SizedBox(width: 4),
               Padding(
                 padding: const EdgeInsets.only(bottom: 3),
-                child: Text(unit, style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+                child: Text(unit, style: AppTextStyles.captionHint),
               ),
             ]),
           ],
@@ -628,29 +629,30 @@ class _ScenarioSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Row(
           children: [
             Container(
-              width: 32, height: 32,
+              width: 30, height: 30,
               decoration: BoxDecoration(
-                color: const Color(0xFFEEEDFB),
-                borderRadius: BorderRadius.circular(8),
+                color: const Color(0xFFEDE9FE),
+                borderRadius: BorderRadius.circular(7),
               ),
-              child: const Icon(Icons.science_rounded, size: 16, color: Color(0xFF7F77DD)),
+              child: const Icon(Icons.science_rounded, size: 15, color: Color(0xFF7C3AED)),
             ),
-            const SizedBox(width: 12),
-            const Text('Mock 시나리오', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF1B3A5C))),
+            const SizedBox(width: 10),
+            const Text('Mock 시나리오', style: AppTextStyles.label),
             const Spacer(),
             DropdownButton<MockDriveScenario>(
               value: selected,
               underline: const SizedBox(),
-              style: const TextStyle(fontSize: 12, color: Color(0xFF1B3A5C)),
+              style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
               items: MockDriveScenario.values
                   .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
                   .toList(),
@@ -681,30 +683,31 @@ class _MonitoringButton extends StatelessWidget {
           if (isTripActive)
             SizedBox(
               width: double.infinity,
-              height: 54,
+              height: 50,
               child: ElevatedButton.icon(
                 onPressed: onStop,
-                icon: const Icon(Icons.stop_circle_rounded, color: Colors.white),
+                icon: const Icon(Icons.stop_circle_rounded, color: Colors.white, size: 18),
                 label: const Text('지금 종료  →  결과 보기',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE53E3E),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  backgroundColor: AppColors.danger,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ),
             ),
           if (isTripActive) const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            height: 48,
+            height: 46,
             child: OutlinedButton.icon(
               onPressed: onStop,
-              icon: const Icon(Icons.sensors_off_rounded, size: 18),
+              icon: const Icon(Icons.sensors_off_rounded, size: 16),
               label: const Text('모니터링 중지', style: TextStyle(fontWeight: FontWeight.w600)),
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.grey[600],
-                side: BorderSide(color: Colors.grey[400]!),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                foregroundColor: AppColors.textSecondary,
+                side: const BorderSide(color: AppColors.border),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
           ),
@@ -714,18 +717,19 @@ class _MonitoringButton extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
-      height: 54,
+      height: 50,
       child: ElevatedButton.icon(
         onPressed: isVinVerified ? onStart : null,
-        icon: const Icon(Icons.sensors_rounded, color: Colors.white),
+        icon: const Icon(Icons.sensors_rounded, color: Colors.white, size: 18),
         label: Text(
           isVinVerified ? '모니터링 시작 (자동 주행 감지)' : 'VIN 인증 후 이용 가능',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF1B3A5C),
-          disabledBackgroundColor: Colors.grey[300],
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          backgroundColor: AppColors.primary,
+          disabledBackgroundColor: AppColors.border,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );
@@ -752,10 +756,10 @@ class _EventTile extends StatelessWidget {
 
   Color get _color {
     switch (event.penalty) {
-      case 2: return const Color(0xFFEF9F27);
-      case 3: return const Color(0xFFE67E22);
-      case 4: return const Color(0xFFE53E3E);
-      default: return Colors.grey;
+      case 2: return AppColors.warning;
+      case 3: return const Color(0xFFEA580C);
+      case 4: return AppColors.danger;
+      default: return AppColors.textSecondary;
     }
   }
 
@@ -767,36 +771,37 @@ class _EventTile extends StatelessWidget {
         '${ts.second.toString().padLeft(2, '0')}';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _color.withValues(alpha: 0.3)),
+        border: Border.all(color: _color.withValues(alpha: 0.25)),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
       ),
       child: Row(
         children: [
           Container(
-            width: 32, height: 32,
-            decoration: BoxDecoration(color: _color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: Icon(_icon, size: 16, color: _color),
+            width: 30, height: 30,
+            decoration: BoxDecoration(color: _color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(7)),
+            child: Icon(_icon, size: 15, color: _color),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(event.title.isNotEmpty ? event.title : event.type.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF1B3A5C))),
+                    style: AppTextStyles.label),
                 if (event.description.isNotEmpty)
-                  Text(event.description, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+                  Text(event.description, style: AppTextStyles.captionHint),
               ],
             ),
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('-${event.penalty}점', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _color)),
-              Text(time, style: TextStyle(fontSize: 10, color: Colors.grey[400])),
+              Text('-${event.penalty}점', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: _color)),
+              Text(time, style: AppTextStyles.captionHint),
             ],
           ),
         ],
@@ -811,12 +816,12 @@ class _EmptyEventHint extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(vertical: 24),
         alignment: Alignment.center,
-        child: Column(
+        child: const Column(
           children: [
-            Icon(Icons.check_circle_outline_rounded, size: 36, color: Colors.green[300]),
-            const SizedBox(height: 8),
-            const Text('감점 이벤트 없음\n안전 운전 중입니다',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Colors.grey)),
+            Icon(Icons.check_circle_outline_rounded, size: 32, color: AppColors.success),
+            SizedBox(height: 8),
+            Text('감점 이벤트 없음\n안전 운전 중입니다',
+                textAlign: TextAlign.center, style: AppTextStyles.bodySecondary),
           ],
         ),
       );

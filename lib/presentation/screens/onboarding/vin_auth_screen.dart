@@ -4,6 +4,8 @@ import '../../../data/datasources/obd_datasource.dart';
 import '../../../data/datasources/api_datasource.dart';
 import '../../../data/datasources/car_info_datasource.dart';
 import '../home_screen.dart';
+import '../../widgets/app_colors.dart';
+import '../../widgets/app_text_styles.dart';
 
 class VinAuthScreen extends StatefulWidget {
   final ObdDatasource obd;
@@ -136,81 +138,98 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('차량 인증'),
-        backgroundColor: Colors.white,
+        title: const Text('차량 인증', style: AppTextStyles.h2),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'OBD 스캐너에서 읽은 차대번호로\n차량 정보를 확인합니다',
-              style: TextStyle(fontSize: 15, color: Colors.grey),
+            // 안내 텍스트
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: AppColors.primary),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'OBD 스캐너에서 읽은 차대번호로 차량 정보를 확인합니다',
+                      style: TextStyle(fontSize: 13, color: AppColors.primary),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 28),
-
-            // ── VIN 카드 ──────────────────────────────
-            _buildVinCard(),
             const SizedBox(height: 16),
 
-            // ── 차량 정보 카드 ─────────────────────────
+            // VIN 카드
+            _buildVinCard(),
+            const SizedBox(height: 12),
+
+            // 차량 정보 카드
             if (_carInfoResult != null) ...[
               _buildCarInfoCard(_carInfoResult!),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
             ],
 
-            // ── 에러 메시지들 ─────────────────────────
+            // 에러 메시지들
             if (_vinError.isNotEmpty) _ErrorBox(message: _vinError),
             if (_decodeError.isNotEmpty) _ErrorBox(message: '차량 정보 조회 실패: $_decodeError'),
             if (_verifyError.isNotEmpty) _ErrorBox(message: _verifyError),
 
             const SizedBox(height: 8),
 
-            // ── 다시 시도 버튼 ─────────────────────────
+            // 다시 시도 버튼
             if (_vinError.isNotEmpty || (_vin.isEmpty && !_isLoadingVin))
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: SizedBox(
                   width: double.infinity,
-                  height: 48,
-                  child: OutlinedButton(
+                  height: 46,
+                  child: OutlinedButton.icon(
                     onPressed: _readAndDecodeVin,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('다시 시도'),
                     style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      foregroundColor: AppColors.primary,
+                      side: const BorderSide(color: AppColors.primary),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text('다시 시도'),
                   ),
                 ),
               ),
 
-            // ── 인증하기 버튼 ─────────────────────────
-            const SizedBox(height: 4),
+            // 인증하기 버튼
             SizedBox(
               width: double.infinity,
-              height: 52,
+              height: 50,
               child: ElevatedButton(
                 onPressed: _canVerify ? _verifyVin : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B3A5C),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  backgroundColor: AppColors.primary,
+                  disabledBackgroundColor: AppColors.border,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 child: _isVerifying
-                    ? const CircularProgressIndicator(color: Colors.white)
+                    ? const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                      )
                     : const Text(
                         '인증하기',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                       ),
               ),
             ),
@@ -221,131 +240,122 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
   }
 
   Widget _buildVinCard() {
-    return _InfoCard(
-      title: '차대번호 (VIN)',
-      child: _isLoadingVin
-          ? const _LoadingRow(label: 'OBD에서 읽는 중...')
-          : _vin.isNotEmpty
-              ? Text(
-                  _vin,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1B3A5C),
-                    letterSpacing: 1.5,
-                  ),
-                )
-              : const Text(
-                  '읽기 실패',
-                  style: TextStyle(color: Colors.red, fontSize: 14),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.credit_card_outlined, size: 15, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              const Text('차대번호 (VIN)', style: AppTextStyles.caption),
+              const Spacer(),
+              if (_isLoadingVin)
+                const SizedBox(
+                  width: 14, height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
                 ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _isLoadingVin
+              ? const Text('OBD에서 읽는 중...', style: AppTextStyles.bodySecondary)
+              : _vin.isNotEmpty
+                  ? Text(
+                      _vin,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        letterSpacing: 1.2,
+                      ),
+                    )
+                  : const Text('읽기 실패', style: TextStyle(color: AppColors.danger, fontSize: 14)),
+        ],
+      ),
     );
   }
 
   Widget _buildCarInfoCard(CarInfo info) {
-    return _InfoCard(
-      title: '차량 정보',
-      child: _isDecodingVin
-          ? const _LoadingRow(label: '차량 정보 조회 중...')
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (info.make.isNotEmpty || info.model.isNotEmpty)
-                  _InfoRow(
-                    '차명',
-                    '${info.make} ${info.model}'.trim(),
-                  ),
-                if (info.modelYear.isNotEmpty)
-                  _InfoRow('연식', '${info.modelYear}년'),
-                if (info.bodyClass.isNotEmpty)
-                  _InfoRow('차종', info.bodyClass),
-                if (info.fuelType.isNotEmpty)
-                  _InfoRow('연료', info.fuelType),
-                if (info.plantCountry.isNotEmpty)
-                  _InfoRow('생산국', info.plantCountry),
-              ],
-            ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.directions_car_outlined, size: 15, color: AppColors.textSecondary),
+              SizedBox(width: 6),
+              Text('차량 정보', style: AppTextStyles.caption),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _isDecodingVin
+              ? const Row(
+                  children: [
+                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+                    SizedBox(width: 10),
+                    Text('차량 정보 조회 중...', style: AppTextStyles.bodySecondary),
+                  ],
+                )
+              : Column(
+                  children: [
+                    if (info.make.isNotEmpty || info.model.isNotEmpty)
+                      _InfoRowItem('차명', '${info.make} ${info.model}'.trim()),
+                    if (info.modelYear.isNotEmpty)
+                      _InfoRowItem('연식', '${info.modelYear}년'),
+                    if (info.bodyClass.isNotEmpty)
+                      _InfoRowItem('차종', info.bodyClass),
+                    if (info.fuelType.isNotEmpty)
+                      _InfoRowItem('연료', info.fuelType),
+                    if (info.plantCountry.isNotEmpty)
+                      _InfoRowItem('생산국', info.plantCountry, showDivider: false),
+                  ],
+                ),
+        ],
+      ),
     );
   }
 }
 
-// ── 공용 위젯 ──────────────────────────────────────────
-
-class _InfoCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-  const _InfoCard({required this.title, required this.child});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Colors.grey,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 10),
-            child,
-          ],
-        ),
-      );
-}
-
-class _LoadingRow extends StatelessWidget {
-  final String label;
-  const _LoadingRow({required this.label});
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          const SizedBox(width: 10),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 14)),
-        ],
-      );
-}
-
-class _InfoRow extends StatelessWidget {
+class _InfoRowItem extends StatelessWidget {
   final String label;
   final String value;
-  const _InfoRow(this.label, this.value);
+  final bool showDivider;
+  const _InfoRowItem(this.label, this.value, {this.showDivider = true});
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 64,
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 13, color: Colors.grey),
-              ),
+  Widget build(BuildContext context) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 60,
+                  child: Text(label, style: AppTextStyles.caption),
+                ),
+                Expanded(
+                  child: Text(value, style: AppTextStyles.body),
+                ),
+              ],
             ),
-            Expanded(
-              child: Text(
-                value,
-                style: const TextStyle(fontSize: 13, color: Colors.black87),
-              ),
-            ),
-          ],
-        ),
+          ),
+          if (showDivider) const Divider(height: 1, color: AppColors.divider),
+        ],
       );
 }
 
@@ -359,19 +369,16 @@ class _ErrorBox extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.red.shade50,
+            color: AppColors.dangerLight,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.red.shade200),
+            border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 16),
+              const Icon(Icons.error_outline, color: AppColors.danger, size: 16),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                ),
+                child: Text(message, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
               ),
             ],
           ),

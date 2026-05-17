@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import '../../data/datasources/obd_datasource.dart';
 import '../../core/constants/obd_constants.dart';
 import '../../core/utils/obd_pid_parser.dart';
+import '../widgets/app_colors.dart';
+import '../widgets/app_text_styles.dart';
 
 /// 실차 검증용 PID 진단 화면
 /// - AT 명령 터미널: 직접 명령 입력 → 원시 응답 확인
@@ -203,31 +205,38 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     final connected = _obd != null;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E293B),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
+        elevation: 0,
         title: Row(
           children: [
-            const Text('PID 진단', style: TextStyle(color: Colors.white)),
+            const Text('PID 진단', style: AppTextStyles.h2),
             const SizedBox(width: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: connected ? Colors.green.shade700 : Colors.red.shade700,
-                borderRadius: BorderRadius.circular(10),
+                color: connected ? AppColors.successLight : AppColors.dangerLight,
+                borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
-                connected ? '연결됨 · ${_obd!.deviceName}' : '연결 없음',
-                style: const TextStyle(color: Colors.white, fontSize: 11),
+                connected ? '연결됨' : '연결 없음',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: connected ? AppColors.success : AppColors.danger,
+                ),
               ),
             ),
           ],
         ),
         bottom: TabBar(
           controller: _tabController,
-          indicatorColor: const Color(0xFF38BDF8),
-          labelColor: const Color(0xFF38BDF8),
-          unselectedLabelColor: Colors.grey,
+          indicatorColor: AppColors.primary,
+          labelColor: AppColors.primary,
+          unselectedLabelColor: AppColors.textSecondary,
+          indicatorSize: TabBarIndicatorSize.label,
           tabs: const [
             Tab(text: 'AT 터미널'),
             Tab(text: '라이브 모니터'),
@@ -385,20 +394,20 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 폴링 제어
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _togglePolling,
-                  icon: Icon(_isPolling ? Icons.stop : Icons.play_arrow),
-                  label: Text(_isPolling ? '모니터 중지' : '모니터 시작'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isPolling ? Colors.red.shade700 : Colors.green.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: _togglePolling,
+              icon: Icon(_isPolling ? Icons.stop : Icons.play_arrow, size: 16),
+              label: Text(_isPolling ? '모니터 중지' : '모니터 시작',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isPolling ? AppColors.danger : AppColors.success,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 16),
 
@@ -407,21 +416,23 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: _MonitorCard(label: '속도', value: '${_speed.toInt()}', unit: 'km/h', color: const Color(0xFF38BDF8))),
+              Expanded(child: _MonitorCard(label: '속도', value: '${_speed.toInt()}', unit: 'km/h', color: AppColors.primary)),
               const SizedBox(width: 10),
-              Expanded(child: _MonitorCard(label: 'RPM', value: '${_rpm.toInt()}', unit: 'rpm', color: const Color(0xFF34D399))),
+              Expanded(child: _MonitorCard(label: 'RPM', value: '${_rpm.toInt()}', unit: 'rpm', color: AppColors.success)),
             ],
           ),
           const SizedBox(height: 20),
 
           // 조향각 (실차 검증 필요)
-          _buildSectionLabel('조향각 센서 CAN 0x${ObdConstants.canIdSteering}  ⚠ 실차 검증 필요'),
+          _buildSectionLabel('조향각 센서 CAN 0x${ObdConstants.canIdSteering}'),
+          const SizedBox(height: 4),
+          const Text('⚠ 실차 검증 필요', style: TextStyle(fontSize: 11, color: AppColors.warning)),
           const SizedBox(height: 8),
           _MonitorCard(
             label: '조향각 (파싱값)',
             value: _steering.toStringAsFixed(1),
             unit: '°',
-            color: const Color(0xFFA78BFA),
+            color: const Color(0xFF7C3AED),
           ),
           const SizedBox(height: 8),
           _RawFrameBox(
@@ -439,15 +450,17 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           const SizedBox(height: 20),
 
           // 방향지시등 (실차 검증 필요)
-          _buildSectionLabel('BCM CAN 0x${ObdConstants.canIdBcm}  ⚠ 실차 검증 필요'),
+          _buildSectionLabel('BCM CAN 0x${ObdConstants.canIdBcm}'),
+          const SizedBox(height: 4),
+          const Text('⚠ 실차 검증 필요', style: TextStyle(fontSize: 11, color: AppColors.warning)),
           const SizedBox(height: 8),
           Row(
             children: [
-              _SignalIndicator(label: '좌', active: _signals.left,   color: Colors.orange),
+              _SignalIndicator(label: '좌', active: _signals.left,   color: AppColors.warning),
               const SizedBox(width: 10),
-              _SignalIndicator(label: '우', active: _signals.right,  color: Colors.orange),
+              _SignalIndicator(label: '우', active: _signals.right,  color: AppColors.warning),
               const SizedBox(width: 10),
-              _SignalIndicator(label: '비상', active: _signals.hazard, color: Colors.red),
+              _SignalIndicator(label: '비상', active: _signals.hazard, color: AppColors.danger),
             ],
           ),
           const SizedBox(height: 8),
@@ -460,35 +473,36 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           // CAN ID 못 찾을 때 전체 스캔
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.orange.shade800),
+              color: AppColors.warningLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '⚠ 응답 없음이면 CAN ID가 틀린 것',
-                  style: TextStyle(color: Colors.orange, fontSize: 11),
+                  '응답 없음이면 CAN ID가 틀린 것',
+                  style: TextStyle(color: AppColors.warning, fontSize: 12, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 4),
                 const Text(
                   '깜빡이 켠 상태에서 아래 버튼으로 전체 스캔 → 활성 ID 확인',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: _scanAllCan,
-                    icon: const Icon(Icons.search, size: 16),
-                    label: const Text('CAN 전체 스캔 (깜빡이 켜고 누르세요)'),
+                    icon: const Icon(Icons.search, size: 15),
+                    label: const Text('CAN 전체 스캔 (깜빡이 켜고 누르세요)',
+                        style: TextStyle(color: Colors.white, fontSize: 12)),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade800,
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(fontSize: 12),
+                      backgroundColor: AppColors.warning,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
                   ),
                 ),
@@ -508,22 +522,22 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF334155)),
+              border: Border.all(color: AppColors.border),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('검증 후 수정 방법',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text('검증 후 수정 방법', style: AppTextStyles.h3),
                 const SizedBox(height: 8),
                 const Text(
                   '1. 깜빡이 켜고 "원시 프레임 캡처" 눌러서 byte 값 확인\n'
                   '2. 핸들 돌리고 "원시 프레임 캡처" 눌러서 byte 값 확인\n'
                   '3. obd_constants.dart에서 마스크/배율 수정\n'
                   '4. obd_datasource.dart의 _parseSteeringAngle() 수정',
-                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.6),
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12, height: 1.6),
                 ),
               ],
             ),
@@ -551,14 +565,14 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: AppColors.primaryLight,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.4)),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
             ),
             child: const Text(
               'ELM327 응답 문자열을 직접 입력하면 파싱 결과를 확인할 수 있습니다.\n'
               'OBD 연결 없이 동작하며, 실차 응답이 이상할 때 디버깅용으로 사용하세요.',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, height: 1.5),
+              style: TextStyle(color: AppColors.primary, fontSize: 12, height: 1.5),
             ),
           ),
           const SizedBox(height: 16),
@@ -575,8 +589,10 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -584,12 +600,11 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
                 // PID 종류 선택
                 Row(
                   children: [
-                    const Text('PID 종류:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12)),
+                    const Text('PID 종류:', style: AppTextStyles.caption),
                     const SizedBox(width: 12),
                     DropdownButton<String>(
                       value: _customPidType,
-                      dropdownColor: const Color(0xFF1E293B),
-                      style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 12),
+                      style: const TextStyle(color: AppColors.primary, fontSize: 12),
                       underline: const SizedBox(),
                       items: pidTypes
                           .map((t) => DropdownMenuItem(value: t, child: Text(t)))
@@ -606,16 +621,20 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
                 TextField(
                   controller: _customInputController,
                   style: const TextStyle(
-                    color: Color(0xFF4ADE80), fontFamily: 'monospace', fontSize: 13,
+                    color: AppColors.textPrimary, fontFamily: 'monospace', fontSize: 13,
                   ),
                   decoration: InputDecoration(
                     hintText: '예: 410C1AF8  또는  7E8 04 41 0C 1A F8',
-                    hintStyle: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+                    hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 12),
                     filled: true,
-                    fillColor: const Color(0xFF0F172A),
+                    fillColor: AppColors.background,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide.none,
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: AppColors.border),
                     ),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -650,10 +669,11 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
                       });
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1D4ED8),
+                      backgroundColor: AppColors.primary,
+                      elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text('파싱 실행', style: TextStyle(color: Colors.white)),
+                    child: const Text('파싱 실행', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                   ),
                 ),
                 if (_customParseResult.isNotEmpty) ...[
@@ -662,20 +682,21 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _customParseResult.contains('실패')
-                          ? Colors.red.shade900.withValues(alpha: 0.4)
-                          : Colors.green.shade900.withValues(alpha: 0.4),
+                      color: _customParseResult.contains('실패') ? AppColors.dangerLight : AppColors.successLight,
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: _customParseResult.contains('실패')
+                            ? AppColors.danger.withValues(alpha: 0.3)
+                            : AppColors.success.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Text(
                       '결과: $_customParseResult',
                       style: TextStyle(
-                        color: _customParseResult.contains('실패')
-                            ? Colors.red.shade300
-                            : const Color(0xFF4ADE80),
+                        color: _customParseResult.contains('실패') ? AppColors.danger : AppColors.success,
                         fontFamily: 'monospace',
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -707,28 +728,25 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
 
   Widget _buildSectionLabel(String text) => Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF94A3B8),
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
+        style: AppTextStyles.h3,
       );
 
   Widget _buildParseGuide(String title, String body) => Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+            Text(title, style: AppTextStyles.caption),
             const SizedBox(height: 4),
             Text(
               body,
               style: const TextStyle(
-                color: Color(0xFF94A3B8),
+                color: AppColors.textSecondary,
                 fontSize: 11,
                 fontFamily: 'monospace',
                 height: 1.5,
@@ -755,12 +773,12 @@ class _ParserTestRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: pass ? Colors.green.shade700 : Colors.red.shade700,
-          width: 1,
+          color: pass ? AppColors.success.withValues(alpha: 0.3) : AppColors.danger.withValues(alpha: 0.3),
         ),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -770,35 +788,31 @@ class _ParserTestRow extends StatelessWidget {
               Icon(
                 pass ? Icons.check_circle_rounded : Icons.cancel_rounded,
                 size: 14,
-                color: pass ? Colors.green : Colors.red,
+                color: pass ? AppColors.success : AppColors.danger,
               ),
               const SizedBox(width: 6),
               Text(
                 tc.pid,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
+                style: AppTextStyles.label,
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
             '입력: ${tc.rawInput}',
-            style: const TextStyle(color: Color(0xFF94A3B8), fontFamily: 'monospace', fontSize: 11),
+            style: const TextStyle(color: AppColors.textSecondary, fontFamily: 'monospace', fontSize: 11),
           ),
           Text(
             '기대: ${tc.expectedLabel}',
-            style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+            style: AppTextStyles.captionHint,
           ),
           Text(
             '결과: $actual',
             style: TextStyle(
-              color: pass ? const Color(0xFF4ADE80) : Colors.red.shade300,
+              color: pass ? AppColors.success : AppColors.danger,
               fontFamily: 'monospace',
               fontSize: 12,
-              fontWeight: FontWeight.bold,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -836,22 +850,24 @@ class _MonitorCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 11)),
+            Text(label, style: AppTextStyles.caption),
             const SizedBox(height: 6),
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(value, style: TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.bold)),
+                Text(value, style: TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.w700)),
                 const SizedBox(width: 4),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(unit, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                  child: Text(unit, style: AppTextStyles.captionHint),
                 ),
               ],
             ),
@@ -873,11 +889,12 @@ class _RawFrameBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFF334155)),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
         ),
         child: Row(
           children: [
@@ -885,12 +902,12 @@ class _RawFrameBox extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                  Text(label, style: AppTextStyles.captionHint),
                   const SizedBox(height: 4),
                   Text(
                     raw,
                     style: const TextStyle(
-                      color: Color(0xFF4ADE80),
+                      color: AppColors.success,
                       fontFamily: 'monospace',
                       fontSize: 12,
                     ),
@@ -900,7 +917,7 @@ class _RawFrameBox extends StatelessWidget {
             ),
             TextButton(
               onPressed: onCapture,
-              child: const Text('캡처', style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+              child: const Text('캡처', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
             ),
           ],
         ),
@@ -923,22 +940,23 @@ class _SignalIndicator extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: active ? color.withValues(alpha: 0.2) : const Color(0xFF1E293B),
+            color: active ? color.withValues(alpha: 0.1) : AppColors.surface,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: active ? color : const Color(0xFF334155),
-              width: active ? 2 : 1,
+              color: active ? color : AppColors.border,
+              width: active ? 1.5 : 1,
             ),
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
           ),
           child: Column(
             children: [
-              Icon(Icons.arrow_upward, color: active ? color : Colors.grey, size: 20),
+              Icon(Icons.arrow_upward, color: active ? color : AppColors.textHint, size: 18),
               const SizedBox(height: 4),
               Text(
                 label,
                 style: TextStyle(
-                  color: active ? color : Colors.grey,
-                  fontWeight: FontWeight.bold,
+                  color: active ? color : AppColors.textHint,
+                  fontWeight: FontWeight.w600,
                   fontSize: 13,
                 ),
               ),
