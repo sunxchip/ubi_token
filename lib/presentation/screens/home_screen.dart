@@ -6,6 +6,7 @@ import 'history_screen.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
 import 'pid_diagnostic_screen.dart';
+import 'driving_score_screen.dart';
 import 'onboarding/scanner_connect_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -245,6 +246,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       context,
                       MaterialPageRoute(
                           builder: (_) => const PidDiagnosticScreen()),
+                    ),
+                  ),
+                  _MenuCard(
+                    icon: Icons.shield_rounded,
+                    iconColor: const Color(0xFF7F77DD),
+                    iconBg: const Color(0xFFEEEDFB),
+                    label: '안전점수',
+                    sub: 'Mock OBD 주행 분석',
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const DrivingScoreScreen()),
                     ),
                   ),
                 ],
