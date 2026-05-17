@@ -127,15 +127,11 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
         (_) => false,
       );
     } else {
-      // VIN 미인증 상태 → HomeScreen으로 이동 후 안전점수 화면에서 Mock 데이터 사용 가능
-      // VinAuthScreen은 실제 OBD 연결이 필요하므로 Mock 모드에서는 건너뜀
-      // TODO: Mock 전용 VinAuthScreen이 필요하면 MockObdDatasource를 별도 구현할 것
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Mock 모드: VIN 미인증 상태입니다. 안전점수 화면에서 Mock 데이터로 테스트 가능합니다.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      // Mock 모드: 임시 VIN/토큰 저장하여 안전점수 화면 진입 가능하게
+      await prefs.setString('auth_token', 'MOCK_TOKEN');
+      await prefs.setString('vin', 'MOCK-VIN-00000');
+      await prefs.setString('car_model', 'Mock 차량 (테스트)');
+      if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
