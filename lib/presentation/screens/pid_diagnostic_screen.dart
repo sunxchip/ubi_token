@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../data/datasources/obd_datasource.dart';
+import '../../data/datasources/its_datasource.dart';
+import '../../data/models/road_speed_limit.dart';
 import '../../core/constants/obd_constants.dart';
 import '../../core/utils/obd_pid_parser.dart';
+import '../../core/utils/speed_limit_checker.dart';
 import '../widgets/app_colors.dart';
 import '../widgets/app_text_styles.dart';
 
@@ -58,10 +62,19 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
   String _customPidType = 'RPM (010C)';
   String _customParseResult = '';
 
+  // ── 도로/제한속도 탭 ──────────────────────────────────
+  final _its = ItsDatasource();
+  bool _roadLoading = false;
+  Position? _currentPosition;
+  TrafficInfo? _trafficInfo;
+  RoadSpeedLimit? _matchedVsl;
+  List<RoadSpeedLimit> _vslList = [];
+  String _roadErrorMsg = '';
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -241,6 +254,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
             Tab(text: 'AT 터미널'),
             Tab(text: '라이브 모니터'),
             Tab(text: 'PID 파서'),
+            Tab(text: '도로정보'),
           ],
         ),
       ),
@@ -255,6 +269,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
               ? const Center(child: Text('OBD 장치에 먼저 연결해주세요', style: TextStyle(color: Colors.grey)))
               : _buildLiveMonitor(),
           _buildPidParserTest(),
+          _buildRoadInfoTab(),
         ],
       ),
     );
@@ -726,6 +741,243 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     );
   }
 
+  // ── 도로정보 / 제한속도 탭 ───────────────────────────────
+  Widget _buildRoadInfoTab() {
+    final obdSpeed = _isPolling ? _speed : null;
+    final limitSpeed = _matchedVsl?.effectiveLimitSpeed;
+    final isOver = SpeedLimitChecker.isOverSpeed(
+      vehicleSpeed: obdSpeed ?? 0,
+      limitSpeed: limitSpeed,
+    );
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 안내 배너
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+            ),
+            child: const Text(
+              'trafficInfo: 현재 도로 통행속도 (제한속도 아님)\n'
+              'VSL: 가변형 속도제한표지 기반 제한속도\n'
+              '두 API 모두 동일한 ITS_API_KEY를 사용합니다.',
+              style: TextStyle(color: AppColors.primary, fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 조회 버튼
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: _roadLoading ? null : _fetchRoadInfo,
+              icon: _roadLoading
+                  ? const SizedBox(width: 14, height: 14,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.my_location, size: 16),
+              label: Text(
+                _roadLoading ? '조회 중...' : '현재 위치 도로정보 조회',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+
+          if (_roadErrorMsg.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.dangerLight,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+              ),
+              child: Text(_roadErrorMsg, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // GPS 좌표
+          _buildSectionLabel('GPS 위치'),
+          const SizedBox(height: 8),
+          _InfoCard(rows: [
+            _InfoRow2('위도',  _currentPosition != null ? _currentPosition!.latitude.toStringAsFixed(6) : '-'),
+            _InfoRow2('경도',  _currentPosition != null ? _currentPosition!.longitude.toStringAsFixed(6) : '-'),
+          ]),
+          const SizedBox(height: 14),
+
+          // trafficInfo
+          _buildSectionLabel('trafficInfo (통행속도 — 제한속도 아님)'),
+          const SizedBox(height: 8),
+          _InfoCard(rows: [
+            _InfoRow2('도로명',    _trafficInfo?.roadName ?? '-'),
+            _InfoRow2('링크 ID',   _trafficInfo?.linkId ?? '-'),
+            _InfoRow2('통행속도',  _trafficInfo != null ? '${_trafficInfo!.speed} km/h (실제 차량 속도)' : '-'),
+          ]),
+          const SizedBox(height: 14),
+
+          // VSL
+          _buildSectionLabel('VSL 제한속도'),
+          const SizedBox(height: 8),
+          _InfoCard(rows: [
+            _InfoRow2('VSL ID',       _matchedVsl?.vslId ?? '-'),
+            _InfoRow2('도로 번호',     _matchedVsl?.roadNo ?? '-'),
+            _InfoRow2('링크 ID',       _matchedVsl?.linkId ?? '-'),
+            _InfoRow2('도로 구분',     _matchedVsl?.sectionLabel ?? '-'),
+            _InfoRow2('제한속도',      _matchedVsl?.limitSpeed != null ? '${_matchedVsl!.limitSpeed!.toInt()} km/h' : '정보 없음'),
+            _InfoRow2('기본 제한속도', _matchedVsl?.defaultLimitSpeed != null ? '${_matchedVsl!.defaultLimitSpeed!.toInt()} km/h' : '정보 없음'),
+            _InfoRow2('적용 제한속도', limitSpeed != null ? '${limitSpeed.toInt()} km/h' : '제한속도 정보 없음'),
+          ]),
+
+          if (_matchedVsl == null && _currentPosition != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.warningLight,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+              ),
+              child: const Text(
+                '제한속도 정보 없음\nVSL 정보 미제공 구간이거나 ITS_VSL_API_URL 미설정 상태입니다.',
+                style: TextStyle(color: AppColors.warning, fontSize: 12, height: 1.5),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 14),
+
+          // OBD 차량 속도 vs 제한속도
+          _buildSectionLabel('OBD 차량 속도 vs 제한속도'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isOver ? AppColors.dangerLight : AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isOver ? AppColors.danger.withValues(alpha: 0.4) : AppColors.border,
+              ),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+            ),
+            child: Column(
+              children: [
+                _InfoRow2('OBD 차량 속도', obdSpeed != null ? '${obdSpeed.toInt()} km/h' : '모니터 탭 시작 필요'),
+                const Divider(height: 1, color: AppColors.divider),
+                _InfoRow2('적용 제한속도', limitSpeed != null ? '${limitSpeed.toInt()} km/h' : '제한속도 정보 없음'),
+                const Divider(height: 1, color: AppColors.divider),
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('과속 여부', style: AppTextStyles.caption),
+                      if (limitSpeed == null)
+                        const Text('판단 불가 (제한속도 없음)', style: TextStyle(fontSize: 12, color: AppColors.textHint))
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isOver ? AppColors.dangerLight : AppColors.successLight,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            isOver ? '과속' : '정상',
+                            style: TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w600,
+                              color: isOver ? AppColors.danger : AppColors.success,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Text(
+              // TODO: 과속 감점 연동 예정
+              'TODO: 과속 이벤트 연동 예정\n'
+              '- EventType.speeding → DriveEvent 생성\n'
+              '- 제한속도 + 5km/h 초과 5초 이상 지속: -3점\n'
+              '- 제한속도 + 20km/h 초과 5초 이상 지속: -5점\n'
+              '- 제한속도 정보 없는 구간은 과속 감점 제외',
+              style: TextStyle(
+                color: AppColors.textSecondary, fontSize: 11,
+                fontFamily: 'monospace', height: 1.6,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _fetchRoadInfo() async {
+    setState(() { _roadLoading = true; _roadErrorMsg = ''; });
+
+    try {
+      // 1. GPS 좌표 조회
+      bool hasPermission = await Geolocator.checkPermission() != LocationPermission.denied;
+      if (!hasPermission) {
+        await Geolocator.requestPermission();
+      }
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      setState(() => _currentPosition = pos);
+
+      // 2. trafficInfo 조회 (통행속도 + linkId)
+      final traffic = await _its.getRoadTrafficInfo(latitude: pos.latitude, longitude: pos.longitude);
+      setState(() => _trafficInfo = traffic);
+
+      // 3. VSL 제한속도 조회
+      final vslList = await _its.fetchVslSpeedLimitsAround(
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        trafficLinkId: traffic?.linkId,
+      );
+      setState(() => _vslList = vslList);
+
+      // 4. 현재 위치에 맞는 VSL 매칭
+      final matched = _its.findNearestVsl(
+        vslList: vslList,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        trafficLinkId: traffic?.linkId,
+      );
+      setState(() => _matchedVsl = matched);
+
+      if (traffic == null && vslList.isEmpty) {
+        setState(() => _roadErrorMsg = 'trafficInfo, VSL 모두 조회 실패. API 키 또는 URL 설정을 확인하세요.');
+      }
+    } catch (e) {
+      setState(() => _roadErrorMsg = '조회 실패: $e');
+    } finally {
+      setState(() => _roadLoading = false);
+    }
+  }
+
   Widget _buildSectionLabel(String text) => Text(
         text,
         style: AppTextStyles.h3,
@@ -965,3 +1217,58 @@ class _SignalIndicator extends StatelessWidget {
         ),
       );
 }
+
+// ── 도로정보 탭 공용 위젯 ──────────────────────────────────────────────────────
+
+class _InfoCard extends StatelessWidget {
+  final List<_InfoRow2> rows;
+  const _InfoCard({required this.rows});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+        ),
+        child: Column(
+          children: rows.asMap().entries.map((e) {
+            final isLast = e.key == rows.length - 1;
+            return Column(
+              children: [
+                e.value,
+                if (!isLast) const Divider(height: 1, color: AppColors.divider),
+              ],
+            );
+          }).toList(),
+        ),
+      );
+}
+
+class _InfoRow2 extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoRow2(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Text(label, style: AppTextStyles.caption),
+            const Spacer(),
+            Flexible(
+              child: Text(
+                value,
+                style: AppTextStyles.label,
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
