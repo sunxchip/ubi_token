@@ -1037,9 +1037,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
   Future<void> _debugVslRaw() async {
     setState(() { _debugLoading = true; _debugResult = null; });
     try {
-      // 서울 시청 좌표 기본값 (GPS 없어도 호출 가능하도록)
-      const lat = 37.5662952, lon = 126.9779692;
-      final result = await _its.debugVslCall(latitude: lat, longitude: lon);
+      final result = await _its.debugVslCall();
       setState(() => _debugResult = result);
     } finally {
       setState(() => _debugLoading = false);
@@ -1055,7 +1053,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
         setState(() => _debugResult = VslDebugResult.configError('GPS 권한이 없거나 위치를 가져올 수 없습니다.'));
         return;
       }
-      final result = await _its.debugVslCall(latitude: pos.latitude, longitude: pos.longitude);
+      final result = await _its.debugVslCall();
       setState(() => _debugResult = result);
     } finally {
       setState(() => _debugLoading = false);
@@ -1072,11 +1070,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
         return;
       }
       final traffic = await _its.getRoadTrafficInfo(latitude: pos.latitude, longitude: pos.longitude);
-      final result  = await _its.debugVslCall(
-        latitude:    pos.latitude,
-        longitude:   pos.longitude,
-        extraParams: traffic?.linkId != null ? {'linkId': traffic!.linkId} : {},
-      );
+      final result  = await _its.debugVslCall();
       setState(() => _debugResult = VslDebugResult(
         requestUrl:    result.requestUrl,
         requestParams: {

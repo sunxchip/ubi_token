@@ -137,17 +137,11 @@ class ItsDatasource {
       return [];
     }
 
-    final minX = (longitude - _boxDelta).toStringAsFixed(6);
-    final maxX = (longitude + _boxDelta).toStringAsFixed(6);
-    final minY = (latitude  - _boxDelta).toStringAsFixed(6);
-    final maxY = (latitude  + _boxDelta).toStringAsFixed(6);
-
+    // VSL API 필수 파라미터: apiKey + getType=json 만 전송
+    // GPS 기반 필터링은 응답 수신 후 findNearestVsl()에서 클라이언트 측에서 처리
     final params = <String, dynamic>{
       'apiKey': apiKey,
-      'minX': minX, 'maxX': maxX,
-      'minY': minY, 'maxY': maxY,
-      // TODO: VSL API 필수 파라미터 확정 후 추가
-      //       4002 오류 발생 시 필수 파라미터 누락 의미
+      'getType': 'json',
     };
 
     dev.log('[VSL] 요청 URL: $vslUrl', name: 'ItsDatasource');
@@ -191,7 +185,8 @@ class ItsDatasource {
         );
 
         if (resultCode == '4002') {
-          dev.log('[VSL] 4002 오류 = 필수 파라미터 누락. 요청 파라미터 확인 필요', name: 'ItsDatasource');
+          dev.log('[VSL] 4002 오류 = 필수 파라미터 누락', name: 'ItsDatasource');
+          dev.log('[VSL] 확인 항목: apiKey=${apiKey.isNotEmpty ? "설정됨" : "누락"}, getType=json 포함 여부', name: 'ItsDatasource');
           return [];
         }
         if (resultCode != null && resultCode != '0') {
@@ -233,7 +228,8 @@ class ItsDatasource {
       );
 
       if (resultCode == '4002') {
-        dev.log('[VSL] 4002 오류 = 필수 파라미터 누락. 요청 파라미터 확인 필요', name: 'ItsDatasource');
+        dev.log('[VSL] 4002 오류 = 필수 파라미터 누락', name: 'ItsDatasource');
+        dev.log('[VSL] 확인 항목: apiKey=${apiKey.isNotEmpty ? "설정됨" : "누락"}, getType=json 포함 여부', name: 'ItsDatasource');
         return [];
       }
       if (resultCode != '0') return [];
@@ -258,11 +254,7 @@ class ItsDatasource {
   //
   // 실제 API 호출이 가능한지 확인하기 위한 디버그 전용 메서드.
   // resultCode/resultMsg/body 전체를 [VslDebugResult]로 반환한다.
-  Future<VslDebugResult> debugVslCall({
-    required double latitude,
-    required double longitude,
-    Map<String, dynamic> extraParams = const {},
-  }) async {
+  Future<VslDebugResult> debugVslCall() async {
     final apiKey = dotenv.env['ITS_API_KEY'] ?? '';
     final vslUrl = dotenv.env['ITS_VSL_API_URL'] ?? '';
 
@@ -276,16 +268,11 @@ class ItsDatasource {
       );
     }
 
-    final minX = (longitude - _boxDelta).toStringAsFixed(6);
-    final maxX = (longitude + _boxDelta).toStringAsFixed(6);
-    final minY = (latitude  - _boxDelta).toStringAsFixed(6);
-    final maxY = (latitude  + _boxDelta).toStringAsFixed(6);
-
+    // VSL API 필수 파라미터: apiKey + getType=json 만 전송
+    // GPS 필터링은 응답 수신 후 클라이언트 측에서 처리
     final params = <String, dynamic>{
       'apiKey': apiKey,
-      'minX': minX, 'maxX': maxX,
-      'minY': minY, 'maxY': maxY,
-      ...extraParams,
+      'getType': 'json',
     };
 
     dev.log('[VSL-DEBUG] 요청 URL: $vslUrl', name: 'ItsDatasource');
@@ -381,8 +368,13 @@ class ItsDatasource {
 
     // 4002 특수 처리
     final is4002 = resultCode == '4002';
+    final sentApiKey = requestParams['apiKey']?.toString() ?? '';
+    final sentGetType = requestParams['getType']?.toString() ?? '';
     final errorMsg = is4002
-        ? '필수 파라미터 누락 오류입니다. ITS VSL API 문서에서 필수 요청 파라미터를 확인해야 합니다.'
+        ? '필수 파라미터 누락 오류 (4002)\n'
+          'apiKey 또는 getType=json 누락 가능성 있음.\n'
+          'apiKey: ${sentApiKey.isNotEmpty ? "설정됨" : "누락"}, '
+          'getType: ${sentGetType.isNotEmpty ? sentGetType : "누락"}'
         : (dioError != null ? '네트워크 오류: $dioError' : null);
 
     dev.log('[VSL-DEBUG] resultCode=$resultCode resultMsg=$resultMsg totalCount=$totalCount', name: 'ItsDatasource');
