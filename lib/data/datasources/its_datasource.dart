@@ -254,6 +254,158 @@ class ItsDatasource {
     }
   }
 
+  // ── 2-1. VSL API 디버그 호출 (raw 응답 전체 반환) ────────────────────────
+  //
+  // 실제 API 호출이 가능한지 확인하기 위한 디버그 전용 메서드.
+  // resultCode/resultMsg/body 전체를 [VslDebugResult]로 반환한다.
+  Future<VslDebugResult> debugVslCall({
+    required double latitude,
+    required double longitude,
+    Map<String, dynamic> extraParams = const {},
+  }) async {
+    final apiKey = dotenv.env['ITS_API_KEY'] ?? '';
+    final vslUrl = dotenv.env['ITS_VSL_API_URL'] ?? '';
+
+    if (apiKey.isEmpty) {
+      return VslDebugResult.configError('ITS_API_KEY가 .env에 설정되지 않았습니다.');
+    }
+    if (vslUrl.isEmpty) {
+      return VslDebugResult.configError(
+        'ITS_VSL_API_URL이 .env에 설정되지 않았습니다.\n'
+        '.env에 ITS_VSL_API_URL=https://... 형식으로 추가하세요.',
+      );
+    }
+
+    final minX = (longitude - _boxDelta).toStringAsFixed(6);
+    final maxX = (longitude + _boxDelta).toStringAsFixed(6);
+    final minY = (latitude  - _boxDelta).toStringAsFixed(6);
+    final maxY = (latitude  + _boxDelta).toStringAsFixed(6);
+
+    final params = <String, dynamic>{
+      'apiKey': apiKey,
+      'minX': minX, 'maxX': maxX,
+      'minY': minY, 'maxY': maxY,
+      ...extraParams,
+    };
+
+    dev.log('[VSL-DEBUG] 요청 URL: $vslUrl', name: 'ItsDatasource');
+    dev.log('[VSL-DEBUG] 요청 파라미터: $params', name: 'ItsDatasource');
+
+    try {
+      final res  = await _dio.get(vslUrl, queryParameters: params);
+      final body = res.data?.toString() ?? '';
+      final statusCode = res.statusCode ?? 0;
+
+      dev.log('[VSL-DEBUG] statusCode: $statusCode', name: 'ItsDatasource');
+      dev.log('[VSL-DEBUG] 응답 앞 500자:\n${body.substring(0, body.length.clamp(0, 500))}', name: 'ItsDatasource');
+
+      return _buildDebugResult(
+        requestUrl:    vslUrl,
+        requestParams: params,
+        statusCode:    statusCode,
+        body:          body,
+      );
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode ?? 0;
+      final body       = e.response?.data?.toString() ?? e.message ?? '';
+      dev.log('[VSL-DEBUG] 요청 실패 — statusCode: $statusCode\nbody: ${body.substring(0, body.length.clamp(0, 500))}', name: 'ItsDatasource');
+      return _buildDebugResult(
+        requestUrl:    vslUrl,
+        requestParams: params,
+        statusCode:    statusCode,
+        body:          body,
+        dioError:      e.message,
+      );
+    }
+  }
+
+  VslDebugResult _buildDebugResult({
+    required String requestUrl,
+    required Map<String, dynamic> requestParams,
+    required int statusCode,
+    required String body,
+    String? dioError,
+  }) {
+    String? resultCode;
+    String? resultMsg;
+    String? totalCount;
+    String? firstVslId;
+    String? firstLinkId;
+    String? firstLimitSpeed;
+    String? firstDefLmtSpeed;
+    String? firstCoordX;
+    String? firstCoordY;
+
+    // JSON 파싱 시도
+    final trimmed = body.trimLeft();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          resultCode = decoded['resultCode']?.toString();
+          resultMsg  = decoded['resultMsg']?.toString();
+          totalCount = decoded['totalCount']?.toString();
+          final items = decoded['data'] ?? decoded['items'] ?? decoded['item'];
+          if (items is List && items.isNotEmpty) {
+            final first = items.first as Map<String, dynamic>? ?? {};
+            firstVslId      = first['vslId']?.toString();
+            firstLinkId     = first['linkId']?.toString();
+            firstLimitSpeed = first['limitSpeed']?.toString();
+            firstDefLmtSpeed= first['defLmtSpeed']?.toString();
+            firstCoordX     = first['coordX']?.toString();
+            firstCoordY     = first['coordY']?.toString();
+          }
+        }
+      } catch (_) {}
+    }
+
+    // JSON 파싱 실패 or XML 응답 → XML fallback
+    if (resultCode == null) {
+      try {
+        final doc   = XmlDocument.parse(body);
+        resultCode  = doc.findAllElements('resultCode').firstOrNull?.innerText;
+        resultMsg   = doc.findAllElements('resultMsg').firstOrNull?.innerText;
+        totalCount  = doc.findAllElements('totalCount').firstOrNull?.innerText;
+        final items = doc.findAllElements('item').toList();
+        if (items.isNotEmpty) {
+          final first = items.first;
+          firstVslId       = first.findElements('vslId').firstOrNull?.innerText;
+          firstLinkId      = first.findElements('linkId').firstOrNull?.innerText;
+          firstLimitSpeed  = first.findElements('limitSpeed').firstOrNull?.innerText;
+          firstDefLmtSpeed = first.findElements('defLmtSpeed').firstOrNull?.innerText;
+          firstCoordX      = first.findElements('coordX').firstOrNull?.innerText;
+          firstCoordY      = first.findElements('coordY').firstOrNull?.innerText;
+        }
+      } catch (_) {}
+    }
+
+    // 4002 특수 처리
+    final is4002 = resultCode == '4002';
+    final errorMsg = is4002
+        ? '필수 파라미터 누락 오류입니다. ITS VSL API 문서에서 필수 요청 파라미터를 확인해야 합니다.'
+        : (dioError != null ? '네트워크 오류: $dioError' : null);
+
+    dev.log('[VSL-DEBUG] resultCode=$resultCode resultMsg=$resultMsg totalCount=$totalCount', name: 'ItsDatasource');
+
+    return VslDebugResult(
+      requestUrl:      requestUrl,
+      requestParams:   requestParams,
+      statusCode:      statusCode,
+      resultCode:      resultCode,
+      resultMsg:       resultMsg,
+      totalCount:      totalCount,
+      firstVslId:      firstVslId,
+      firstLinkId:     firstLinkId,
+      firstLimitSpeed: firstLimitSpeed,
+      firstDefLmtSpeed:firstDefLmtSpeed,
+      firstCoordX:     firstCoordX,
+      firstCoordY:     firstCoordY,
+      bodyPreview:     body.substring(0, body.length.clamp(0, 500)),
+      errorMsg:        errorMsg,
+      is4002:          is4002,
+    );
+  }
+
   // ── 3. trafficInfo + VSL 매칭: 현재 위치 제한속도 결정 ─────────────────
 
   /// VSL 목록에서 현재 위치에 가장 적합한 제한속도 정보를 반환한다.
@@ -306,4 +458,57 @@ class TrafficInfo {
   final String? roadName;
 
   const TrafficInfo({required this.speed, this.linkId, this.roadName});
+}
+
+// ── VSL 디버그 결과 모델 ──────────────────────────────────────────────────────
+
+/// VSL API 디버그 호출 결과
+///
+/// API 호출 성공/실패 여부와 파싱 가능한 모든 필드를 포함한다.
+/// pid_diagnostic_screen의 도로정보 탭 디버그 패널에서 사용한다.
+class VslDebugResult {
+  final String  requestUrl;
+  final Map<String, dynamic> requestParams;
+  final int     statusCode;
+  final String? resultCode;
+  final String? resultMsg;
+  final String? totalCount;
+  final String? firstVslId;
+  final String? firstLinkId;
+  final String? firstLimitSpeed;
+  final String? firstDefLmtSpeed;
+  final String? firstCoordX;
+  final String? firstCoordY;
+  final String  bodyPreview;   // 응답 앞 500자
+  final String? errorMsg;      // null = 성공
+  final bool    is4002;        // 필수 파라미터 누락 오류
+
+  bool get isSuccess => resultCode == '0';
+  bool get isConfigError => requestUrl.isEmpty;
+
+  const VslDebugResult({
+    required this.requestUrl,
+    required this.requestParams,
+    required this.statusCode,
+    this.resultCode,
+    this.resultMsg,
+    this.totalCount,
+    this.firstVslId,
+    this.firstLinkId,
+    this.firstLimitSpeed,
+    this.firstDefLmtSpeed,
+    this.firstCoordX,
+    this.firstCoordY,
+    required this.bodyPreview,
+    this.errorMsg,
+    this.is4002 = false,
+  });
+
+  factory VslDebugResult.configError(String message) => VslDebugResult(
+    requestUrl:    '',
+    requestParams: {},
+    statusCode:    0,
+    bodyPreview:   '',
+    errorMsg:      message,
+  );
 }

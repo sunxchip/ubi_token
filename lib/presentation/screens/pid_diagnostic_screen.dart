@@ -71,6 +71,11 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
   List<RoadSpeedLimit> _vslList = [];
   String _roadErrorMsg = '';
 
+  // ── VSL 디버그 패널 ───────────────────────────────────
+  bool _debugLoading = false;
+  VslDebugResult? _debugResult;
+  bool _debugPanelExpanded = false;
+
   @override
   void initState() {
     super.initState();
@@ -908,6 +913,26 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
             ),
           ),
 
+          const SizedBox(height: 20),
+
+          // ── VSL API 디버그 패널 ────────────────────────────
+          _buildSectionLabel('VSL API 디버그'),
+          const SizedBox(height: 8),
+
+          // 디버그 버튼 4개
+          _DebugButtonGrid(
+            loading: _debugLoading,
+            onTrafficInfo:  _debugTrafficInfo,
+            onVslRaw:       _debugVslRaw,
+            onVslWithGps:   _debugVslWithGps,
+            onLinkIdMatch:  _debugLinkIdMatch,
+          ),
+
+          if (_debugResult != null) ...[
+            const SizedBox(height: 12),
+            _VslDebugPanel(result: _debugResult!),
+          ],
+
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(12),
@@ -975,6 +1000,120 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
       setState(() => _roadErrorMsg = '조회 실패: $e');
     } finally {
       setState(() => _roadLoading = false);
+    }
+  }
+
+  // ── VSL 디버그 핸들러 ─────────────────────────────────
+
+  /// trafficInfo API 단독 테스트
+  Future<void> _debugTrafficInfo() async {
+    setState(() { _debugLoading = true; _debugResult = null; });
+    try {
+      final pos = await _getPosition();
+      if (pos == null) {
+        setState(() => _debugResult = VslDebugResult.configError('GPS 권한이 없거나 위치를 가져올 수 없습니다.'));
+        return;
+      }
+      final info = await _its.getRoadTrafficInfo(latitude: pos.latitude, longitude: pos.longitude);
+      setState(() => _debugResult = VslDebugResult(
+        requestUrl:    'ITS_TRAFFIC_API_URL',
+        requestParams: {'lat': pos.latitude, 'lon': pos.longitude},
+        statusCode:    info != null ? 200 : 0,
+        resultCode:    info != null ? '0' : 'null',
+        resultMsg:     info != null ? '성공' : '결과 없음',
+        totalCount:    info != null ? '1' : '0',
+        firstLinkId:   info?.linkId,
+        bodyPreview:   info != null
+            ? '도로명: ${info.roadName ?? '-'}\nlinkId: ${info.linkId ?? '-'}\n통행속도: ${info.speed} km/h'
+            : '응답 없음',
+        errorMsg:      info == null ? 'trafficInfo 조회 실패. API 키/URL 확인 필요.' : null,
+      ));
+    } finally {
+      setState(() => _debugLoading = false);
+    }
+  }
+
+  /// VSL API 단독 호출 (GPS 없이 기본 파라미터만)
+  Future<void> _debugVslRaw() async {
+    setState(() { _debugLoading = true; _debugResult = null; });
+    try {
+      // 서울 시청 좌표 기본값 (GPS 없어도 호출 가능하도록)
+      const lat = 37.5662952, lon = 126.9779692;
+      final result = await _its.debugVslCall(latitude: lat, longitude: lon);
+      setState(() => _debugResult = result);
+    } finally {
+      setState(() => _debugLoading = false);
+    }
+  }
+
+  /// 현재 GPS 좌표 기반 VSL 조회
+  Future<void> _debugVslWithGps() async {
+    setState(() { _debugLoading = true; _debugResult = null; });
+    try {
+      final pos = await _getPosition();
+      if (pos == null) {
+        setState(() => _debugResult = VslDebugResult.configError('GPS 권한이 없거나 위치를 가져올 수 없습니다.'));
+        return;
+      }
+      final result = await _its.debugVslCall(latitude: pos.latitude, longitude: pos.longitude);
+      setState(() => _debugResult = result);
+    } finally {
+      setState(() => _debugLoading = false);
+    }
+  }
+
+  /// trafficInfo linkId 기준 VSL 매칭 테스트
+  Future<void> _debugLinkIdMatch() async {
+    setState(() { _debugLoading = true; _debugResult = null; });
+    try {
+      final pos = await _getPosition();
+      if (pos == null) {
+        setState(() => _debugResult = VslDebugResult.configError('GPS 권한이 없거나 위치를 가져올 수 없습니다.'));
+        return;
+      }
+      final traffic = await _its.getRoadTrafficInfo(latitude: pos.latitude, longitude: pos.longitude);
+      final result  = await _its.debugVslCall(
+        latitude:    pos.latitude,
+        longitude:   pos.longitude,
+        extraParams: traffic?.linkId != null ? {'linkId': traffic!.linkId} : {},
+      );
+      setState(() => _debugResult = VslDebugResult(
+        requestUrl:    result.requestUrl,
+        requestParams: {
+          ...result.requestParams,
+          'trafficInfo.linkId': traffic?.linkId ?? '(없음)',
+          'trafficInfo.speed':  traffic != null ? '${traffic.speed} km/h (통행속도)' : '(없음)',
+          'trafficInfo.road':   traffic?.roadName ?? '(없음)',
+        },
+        statusCode:     result.statusCode,
+        resultCode:     result.resultCode,
+        resultMsg:      result.resultMsg,
+        totalCount:     result.totalCount,
+        firstVslId:     result.firstVslId,
+        firstLinkId:    result.firstLinkId,
+        firstLimitSpeed:result.firstLimitSpeed,
+        firstDefLmtSpeed:result.firstDefLmtSpeed,
+        firstCoordX:    result.firstCoordX,
+        firstCoordY:    result.firstCoordY,
+        bodyPreview:    result.bodyPreview,
+        errorMsg:       result.errorMsg,
+        is4002:         result.is4002,
+      ));
+    } finally {
+      setState(() => _debugLoading = false);
+    }
+  }
+
+  Future<Position?> _getPosition() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return null;
+      return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -1272,3 +1411,286 @@ class _InfoRow2 extends StatelessWidget {
       );
 }
 
+
+// ── VSL 디버그 버튼 그리드 ────────────────────────────────────────────────────
+
+class _DebugButtonGrid extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onTrafficInfo;
+  final VoidCallback onVslRaw;
+  final VoidCallback onVslWithGps;
+  final VoidCallback onLinkIdMatch;
+
+  const _DebugButtonGrid({
+    required this.loading,
+    required this.onTrafficInfo,
+    required this.onVslRaw,
+    required this.onVslWithGps,
+    required this.onLinkIdMatch,
+  });
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Row(children: [
+        _DebugBtn(label: 'trafficInfo\n테스트',  icon: Icons.traffic,        onTap: loading ? null : onTrafficInfo),
+        const SizedBox(width: 8),
+        _DebugBtn(label: 'VSL Raw\n호출',        icon: Icons.api,            onTap: loading ? null : onVslRaw),
+      ]),
+      const SizedBox(height: 8),
+      Row(children: [
+        _DebugBtn(label: 'GPS 기준\nVSL 조회',   icon: Icons.my_location,    onTap: loading ? null : onVslWithGps),
+        const SizedBox(width: 8),
+        _DebugBtn(label: 'linkId 매칭\n테스트',  icon: Icons.compare_arrows, onTap: loading ? null : onLinkIdMatch),
+      ]),
+      if (loading) ...[
+        const SizedBox(height: 10),
+        const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
+            SizedBox(width: 8),
+            Text('API 호출 중...', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+          ],
+        ),
+      ],
+    ],
+  );
+}
+
+class _DebugBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _DebugBtn({required this.label, required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: onTap != null ? AppColors.surface : AppColors.divider,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: onTap != null ? AppColors.primary.withValues(alpha: 0.3) : AppColors.border),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: onTap != null ? AppColors.primary : AppColors.textHint),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600,
+                  color: onTap != null ? AppColors.textPrimary : AppColors.textHint,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+// ── VSL 디버그 결과 패널 ──────────────────────────────────────────────────────
+
+class _VslDebugPanel extends StatefulWidget {
+  final VslDebugResult result;
+  const _VslDebugPanel({required this.result});
+
+  @override
+  State<_VslDebugPanel> createState() => _VslDebugPanelState();
+}
+
+class _VslDebugPanelState extends State<_VslDebugPanel> {
+  bool _bodyExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.result;
+
+    if (r.isConfigError) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.warningLight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.settings, size: 16, color: AppColors.warning),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '설정 오류\n${r.errorMsg!}',
+                style: const TextStyle(color: AppColors.warning, fontSize: 12, height: 1.5),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final isSuccess = r.isSuccess;
+    final headerColor = isSuccess ? AppColors.success : AppColors.danger;
+    final headerBg    = isSuccess ? AppColors.successLight : AppColors.dangerLight;
+    final headerLabel = isSuccess
+        ? 'API 호출 성공  (resultCode: 0)'
+        : r.is4002
+            ? '필수 파라미터 누락  (resultCode: 4002)'
+            : 'API 호출 실패  (resultCode: ${r.resultCode ?? "-"})';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: headerColor.withValues(alpha: 0.35)),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 헤더
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: headerBg,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(children: [
+              Icon(isSuccess ? Icons.check_circle : Icons.error_outline, size: 16, color: headerColor),
+              const SizedBox(width: 8),
+              Expanded(child: Text(headerLabel,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: headerColor))),
+            ]),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 4002 안내
+                if (r.is4002) ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: AppColors.dangerLight, borderRadius: BorderRadius.circular(8)),
+                    child: const Text(
+                      '필수 파라미터 누락 오류입니다.\nITS VSL API 문서에서 필수 요청 파라미터를 확인해야 합니다.',
+                      style: TextStyle(color: AppColors.danger, fontSize: 12, height: 1.5),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // 요청 정보
+                const Text('요청 정보', style: AppTextStyles.h3),
+                const SizedBox(height: 6),
+                _DebugRow('URL', r.requestUrl.isEmpty ? '(미설정)' : r.requestUrl),
+                ...r.requestParams.entries.map((e) => _DebugRow(e.key, e.value.toString())),
+                const SizedBox(height: 12),
+
+                // 응답 파싱 결과
+                const Text('응답 파싱', style: AppTextStyles.h3),
+                const SizedBox(height: 6),
+                _DebugRow('HTTP statusCode', r.statusCode == 0 ? '-' : r.statusCode.toString()),
+                _DebugRow('resultCode',      r.resultCode ?? '-'),
+                _DebugRow('resultMsg',       r.resultMsg  ?? '-'),
+                _DebugRow('totalCount',      r.totalCount ?? '-'),
+
+                if (r.firstVslId != null || r.firstLinkId != null) ...[
+                  const SizedBox(height: 8),
+                  const Text('첫 번째 item', style: AppTextStyles.h3),
+                  const SizedBox(height: 6),
+                  if (r.firstVslId       != null) _DebugRow('vslId',         r.firstVslId!),
+                  if (r.firstLinkId      != null) _DebugRow('linkId',        r.firstLinkId!),
+                  if (r.firstLimitSpeed  != null) _DebugRow('limitSpeed',    '${r.firstLimitSpeed} km/h'),
+                  if (r.firstDefLmtSpeed != null) _DebugRow('defLmtSpeed',   '${r.firstDefLmtSpeed} km/h'),
+                  if (r.firstCoordX      != null) _DebugRow('coordX (경도)', r.firstCoordX!),
+                  if (r.firstCoordY      != null) _DebugRow('coordY (위도)', r.firstCoordY!),
+                ],
+
+                if (r.errorMsg != null && !r.is4002) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: AppColors.dangerLight, borderRadius: BorderRadius.circular(8)),
+                    child: Text(r.errorMsg!, style: const TextStyle(color: AppColors.danger, fontSize: 12)),
+                  ),
+                ],
+
+                // Response body 토글
+                if (r.bodyPreview.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  GestureDetector(
+                    onTap: () => setState(() => _bodyExpanded = !_bodyExpanded),
+                    child: Row(children: [
+                      const Text('Response Body', style: AppTextStyles.h3),
+                      const Spacer(),
+                      Icon(_bodyExpanded ? Icons.expand_less : Icons.expand_more,
+                          size: 18, color: AppColors.textSecondary),
+                    ]),
+                  ),
+                  if (_bodyExpanded) ...[
+                    const SizedBox(height: 6),
+                    GestureDetector(
+                      onLongPress: () {
+                        Clipboard.setData(ClipboardData(text: r.bodyPreview));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('응답 복사됨'), duration: Duration(seconds: 1)),
+                        );
+                      },
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(r.bodyPreview,
+                          style: const TextStyle(color: Color(0xFF94A3B8),
+                              fontFamily: 'monospace', fontSize: 11, height: 1.5)),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('길게 누르면 복사됩니다',
+                        style: TextStyle(fontSize: 10, color: AppColors.textHint)),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DebugRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DebugRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 5),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 110, child: Text(label, style: AppTextStyles.captionHint)),
+        Expanded(
+          child: Text(value,
+            style: const TextStyle(fontSize: 12, color: AppColors.textPrimary, fontFamily: 'monospace')),
+        ),
+      ],
+    ),
+  );
+}
