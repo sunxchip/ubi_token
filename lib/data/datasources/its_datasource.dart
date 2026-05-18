@@ -186,7 +186,7 @@ class ItsDatasource {
 
         if (resultCode == '4002') {
           dev.log('[VSL] 4002 오류 = 필수 파라미터 누락', name: 'ItsDatasource');
-          dev.log('[VSL] 확인 항목: apiKey=${apiKey.isNotEmpty ? "설정됨" : "누락"}, getType=json 포함 여부', name: 'ItsDatasource');
+          dev.log('[VSL] 확인 항목: apiKey 및 getType=json 포함 여부 점검 필요', name: 'ItsDatasource');
           return [];
         }
         if (resultCode != null && resultCode != '0') {
@@ -229,7 +229,7 @@ class ItsDatasource {
 
       if (resultCode == '4002') {
         dev.log('[VSL] 4002 오류 = 필수 파라미터 누락', name: 'ItsDatasource');
-        dev.log('[VSL] 확인 항목: apiKey=${apiKey.isNotEmpty ? "설정됨" : "누락"}, getType=json 포함 여부', name: 'ItsDatasource');
+        dev.log('[VSL] 확인 항목: apiKey 및 getType=json 포함 여부 점검 필요', name: 'ItsDatasource');
         return [];
       }
       if (resultCode != '0') return [];
