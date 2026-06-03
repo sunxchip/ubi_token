@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/datasources/api_datasource.dart';
 import '../../../data/datasources/car_info_datasource.dart';
+import '../../../data/datasources/obd_datasource.dart';
 import '../../../core/utils/app_mode_controller.dart';
 import '../../../core/enums/obd_connection_mode.dart';
 import 'scanner_connect_screen.dart';
@@ -29,9 +30,11 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
   bool   _alreadyVerified = false;
 
   // ── UI 상태 ────────────────────────────────────────────────────────
-  bool _isLoading     = false;
-  bool _isDecoding    = false;
-  bool _isVerifying   = false;
+  bool _isLoading        = false;
+  bool _isReadingFromObd = false;   // OBD VIN 자동 읽기 중
+  bool _isDecoding       = false;
+  bool _isVerifying      = false;
+  bool _vinFromObd       = false;   // OBD에서 읽어온 VIN 여부
 
   String   _errorMsg  = '';
   CarInfo? _carInfo;
@@ -58,11 +61,56 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
 
     if (!mounted) return;
     setState(() {
-      _savedVin       = vin;
-      _savedCarModel  = model;
+      _savedVin        = vin;
+      _savedCarModel   = model;
       _alreadyVerified = token.isNotEmpty && vin.isNotEmpty;
-      _isLoading      = false;
+      _isLoading       = false;
     });
+
+    // 저장된 VIN이 없고 OBD가 연결된 경우 → 자동으로 차대번호 읽기
+    if (!_alreadyVerified && ObdDatasource.connected != null) {
+      _readVinFromObd();
+    }
+  }
+
+  /// OBD 스캐너에서 VIN 자동 읽기
+  Future<void> _readVinFromObd() async {
+    final obd = ObdDatasource.connected;
+    if (obd == null) return;
+
+    setState(() {
+      _isReadingFromObd = true;
+      _errorMsg         = '';
+      _vinFromObd       = false;
+    });
+
+    try {
+      final vin = await obd.getVin();
+      if (!mounted) return;
+
+      if (vin.isNotEmpty && vin.length == 17) {
+        setState(() {
+          _vinController.text = vin;
+          _isReadingFromObd   = false;
+          _vinFromObd         = true;
+        });
+        // VIN을 읽었으면 바로 차량 정보 조회
+        await _decodeAndVerify();
+      } else {
+        setState(() {
+          _isReadingFromObd = false;
+          _errorMsg = vin.isEmpty
+              ? 'OBD에서 차대번호를 읽지 못했습니다. 직접 입력해주세요.'
+              : 'OBD 응답이 유효하지 않습니다 ($vin). 직접 입력해주세요.';
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isReadingFromObd = false;
+        _errorMsg = 'OBD 통신 오류: 직접 입력해주세요.';
+      });
+    }
   }
 
   // ── VIN 입력 → NHTSA 디코딩 → 서버 인증 ──────────────────────────
@@ -154,7 +202,7 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('차량 인증', style: AppTextStyles.h2),
+        title: const Text('차량 등록', style: AppTextStyles.h2),
         backgroundColor: AppColors.surface,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
@@ -162,9 +210,52 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-          : _alreadyVerified
-              ? _buildAlreadyVerified()
-              : _buildInputForm(),
+          : _isReadingFromObd
+              ? _buildObdReadingView()
+              : _alreadyVerified
+                  ? _buildAlreadyVerified()
+                  : _buildInputForm(),
+    );
+  }
+
+  // ── OBD 자동 읽기 중 화면 ──────────────────────────────────────────
+  Widget _buildObdReadingView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 80, height: 80,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.bluetooth_searching,
+                  size: 40, color: AppColors.primary),
+            ),
+            const SizedBox(height: 24),
+            const Text('차대번호를 읽는 중입니다',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary)),
+            const SizedBox(height: 8),
+            const Text(
+              'OBD 스캐너에서 차대번호(VIN)를\n자동으로 읽어오고 있습니다',
+              style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textSecondary,
+                  height: 1.6),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            const CircularProgressIndicator(
+                color: AppColors.primary, strokeWidth: 2.5),
+          ],
+        ),
+      ),
     );
   }
 
@@ -364,10 +455,47 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
             onChanged: (_) => setState(() {}),
           ),
           const SizedBox(height: 6),
-          const Text(
-            '영문과 숫자만 입력 가능합니다 · 자동으로 대문자 변환',
-            style: TextStyle(fontSize: 11, color: AppColors.textHint),
+          Row(
+            children: [
+              const Text(
+                '영문과 숫자만 입력 가능합니다 · 자동으로 대문자 변환',
+                style: TextStyle(fontSize: 11, color: AppColors.textHint),
+              ),
+              const Spacer(),
+              // OBD 연결된 경우 "OBD에서 읽기" 버튼 표시
+              if (ObdDatasource.connected != null && !_vinFromObd)
+                GestureDetector(
+                  onTap: _readVinFromObd,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bluetooth_searching,
+                          size: 13, color: AppColors.primary),
+                      SizedBox(width: 3),
+                      Text('OBD에서 읽기',
+                          style: TextStyle(
+                              fontSize: 11,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+            ],
           ),
+          // OBD에서 읽어온 VIN임을 표시
+          if (_vinFromObd) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                const Icon(Icons.check_circle_outline,
+                    size: 13, color: AppColors.success),
+                const SizedBox(width: 4),
+                const Text('OBD 스캐너에서 자동으로 읽어온 차대번호입니다',
+                    style: TextStyle(
+                        fontSize: 11, color: AppColors.success)),
+              ],
+            ),
+          ],
 
           // 에러
           if (_errorMsg.isNotEmpty) ...[
@@ -435,7 +563,7 @@ class _VinAuthScreenState extends State<VinAuthScreen> {
                       ],
                     )
                   : const Text(
-                      '차량 인증하기',
+                      '차량 등록',
                       style: TextStyle(
                           color: Colors.white,
                           fontSize: 15,
