@@ -618,6 +618,11 @@ class _ObdModeBanner extends StatelessWidget {
         icon     = Icons.playlist_add_check_rounded;
         title    = 'Dry-run 모드';
         subtitle = 'SafeObdCommandValidator 검증용 — 실제 차량 명령 전송 없음';
+      case ObdConnectionMode.realReadOnlyDrive:
+        color    = const Color(0xFFE65100);
+        icon     = Icons.directions_car_outlined;
+        title    = '실차 읽기 전용 모드';
+        subtitle = '표준 PID 010C/010D/0111/0104 저주기 읽기 — 4단계 안전 게이트 통과 필수';
       case ObdConnectionMode.real:
         color    = AppColors.danger;
         icon     = Icons.warning_amber_rounded;

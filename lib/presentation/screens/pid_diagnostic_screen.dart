@@ -721,9 +721,10 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
     final ctrl = AppModeController();
     final mode = ctrl.mode;
     final modeColor = switch (mode) {
-      ObdConnectionMode.mock   => AppColors.primary,
-      ObdConnectionMode.dryRun => AppColors.warning,
-      ObdConnectionMode.real   => AppColors.danger,
+      ObdConnectionMode.mock               => AppColors.primary,
+      ObdConnectionMode.dryRun             => AppColors.warning,
+      ObdConnectionMode.realReadOnlyDrive  => const Color(0xFFE65100),
+      ObdConnectionMode.real               => AppColors.danger,
     };
 
     final allPassed     = _dryRunResults != null &&

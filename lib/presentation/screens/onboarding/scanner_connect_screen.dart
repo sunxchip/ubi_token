@@ -335,6 +335,10 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
               borderColor = AppColors.warning;
               bgColor     = AppColors.warningLight;
               icon        = Icons.playlist_add_check_rounded;
+            case ObdConnectionMode.realReadOnlyDrive:
+              borderColor = const Color(0xFFE65100);
+              bgColor     = const Color(0xFFFFF3E0);
+              icon        = Icons.directions_car_outlined;
             case ObdConnectionMode.real:
               borderColor = AppColors.danger;
               bgColor     = AppColors.dangerLight;

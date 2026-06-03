@@ -8,6 +8,7 @@ import 'settings_screen.dart';
 import 'pid_diagnostic_screen.dart';
 import 'driving_score_screen.dart';
 import 'onboarding/scanner_connect_screen.dart';
+import 'real_drive_screen.dart';
 import '../widgets/app_colors.dart';
 import '../widgets/app_text_styles.dart';
 
@@ -165,6 +166,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
 
+            const SizedBox(height: 16),
+
+            // 실차 주행 테스트 — realReadOnlyDrive 모드
+            _RealDriveBannerCard(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RealDriveScreen()),
+              ),
+            ),
             const SizedBox(height: 16),
 
             // 프로젝트 핵심 소개
@@ -386,6 +396,78 @@ class _SummaryItem extends StatelessWidget {
           ],
         ),
       );
+}
+
+// ── 실차 주행 테스트 배너 카드 ────────────────────────────────────────────────────
+class _RealDriveBannerCard extends StatelessWidget {
+  final VoidCallback onTap;
+  const _RealDriveBannerCard({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8F0),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFF9800).withValues(alpha: 0.5)),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1))],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE0B2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.directions_car, size: 24, color: Color(0xFFE65100)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        '실차 주행 테스트',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFE65100),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF9800),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'realReadOnlyDrive',
+                          style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  const Text(
+                    '4단계 안전 게이트 · 표준 PID 010C/010D/0111/0104 읽기 전용',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF795548)),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Color(0xFFFF9800)),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _MenuCard extends StatelessWidget {
