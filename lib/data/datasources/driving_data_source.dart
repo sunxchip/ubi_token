@@ -12,9 +12,10 @@ import '../models/driving_sample.dart';
 enum MockDriveScenario {
   normal,              // 정상 주행 (점수 높게 유지, 이벤트 거의 없음)
   risky,               // 위험 주행 (급출발·급가속·급감속·고RPM·스로틀급변 혼합)
-  idleTest,            // 공회전 이벤트 확인용 (60초 이상 공회전)
-  harshAccelBrakeTest, // 급가속/급감속 이벤트 확인용
-  highRpmTest,         // 고RPM/엔진과부하 이벤트 확인용
+  throttleSpikeTest,   // 스로틀 급변 집중 테스트 (페달 급변화 반복)
+  idleTest,            // 공회전/고RPM 테스트 (60초 이상 공회전)
+  harshAccelBrakeTest, // 급가속/급감속 테스트
+  highRpmTest,         // 고RPM/엔진과부하 테스트
 }
 
 extension MockDriveScenarioLabel on MockDriveScenario {
@@ -22,9 +23,10 @@ extension MockDriveScenarioLabel on MockDriveScenario {
     switch (this) {
       case MockDriveScenario.normal:              return '정상 주행';
       case MockDriveScenario.risky:               return '위험 주행 (종합)';
-      case MockDriveScenario.idleTest:            return '공회전 테스트';
+      case MockDriveScenario.throttleSpikeTest:   return '스로틀 급변 집중';
+      case MockDriveScenario.idleTest:            return '공회전/고RPM 테스트';
       case MockDriveScenario.harshAccelBrakeTest: return '급가속/급감속 테스트';
-      case MockDriveScenario.highRpmTest:         return '고RPM 테스트';
+      case MockDriveScenario.highRpmTest:         return '고RPM/엔진과부하 테스트';
     }
   }
 }
@@ -93,6 +95,9 @@ class MockObdDataSource implements DrivingDataSource {
         break;
       case MockDriveScenario.risky:
         _updateRisky();
+        break;
+      case MockDriveScenario.throttleSpikeTest:
+        _updateThrottleSpikeTest();
         break;
       case MockDriveScenario.idleTest:
         _updateIdleTest();
@@ -196,6 +201,29 @@ class MockObdDataSource implements DrivingDataSource {
     } else {
       _speed = 55 + r.nextDouble() * 20; _rpm = 1900 + r.nextDouble() * 400;
       _throttle = 22 + r.nextDouble() * 12; _engineLoad = 32 + r.nextDouble() * 15;
+    }
+  }
+
+  /// 스로틀 급변 집중 테스트: 일정 속도 유지하면서 스로틀을 급격히 반복 변화
+  ///
+  /// 3초마다 스로틀 5% ↔ 75% 교대 → 스로틀급변 이벤트 다수 발생
+  void _updateThrottleSpikeTest() {
+    final r     = _rng;
+    final phase = _tick % 6;
+
+    if (_tick <= 5) {
+      // 워밍업: 부드럽게 가속
+      _speed      = (_speed + 8 + r.nextDouble()).clamp(0, 60);
+      _rpm        = 1600 + _speed * 18 + r.nextDouble() * 200;
+      _throttle   = 22 + r.nextDouble() * 5;
+      _engineLoad = 30 + r.nextDouble() * 8;
+    } else {
+      // 정속 유지하면서 스로틀만 급변 (3초 주기)
+      _speed      = 50 + r.nextDouble() * 5;
+      _rpm        = 2000 + r.nextDouble() * 300;
+      _engineLoad = 45 + r.nextDouble() * 15;
+      // 스로틀: 3초마다 5% ↔ 75% 교대 → 변화량 70% (임계치 30% 초과)
+      _throttle   = (phase < 3) ? (5 + r.nextDouble() * 5) : (72 + r.nextDouble() * 6);
     }
   }
 

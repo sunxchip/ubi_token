@@ -574,6 +574,31 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 발표 버전 안내
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.warningLight,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline_rounded, size: 14, color: AppColors.warning),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '현재 발표 버전에서는 차량 안전을 위해 Mock/Dry-run 기반으로 시연합니다.\n'
+                  '실제 ELM327 BLE 연동은 추후 구현 예정입니다.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textPrimary, height: 1.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
         // 체크리스트
         const Text('실차 연결 전 체크리스트', style: AppTextStyles.h3),
         const SizedBox(height: 8),

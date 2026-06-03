@@ -267,6 +267,10 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── OBD 모드 배너 ──────────────────────────────────
+            _ObdModeBanner(mode: AppModeController().mode),
+            const SizedBox(height: 10),
+
             // VIN 인증 상태 카드
             _VinStatusCard(vin: _vin, carModel: _carModel, isVerified: _isVinVerified),
             const SizedBox(height: 10),
@@ -328,9 +332,9 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Mock 시나리오 선택 (모니터링 전에만 표시)
-            // TODO: 실제 RealObdDataSource 전환 시 제거
-            if (!_isMonitoring) ...[
+            // Mock 시나리오 선택 (모니터링 전 + Mock 모드일 때만)
+            if (!_isMonitoring &&
+                AppModeController().mode == ObdConnectionMode.mock) ...[
               _ScenarioSelector(
                 selected: _selectedScenario,
                 onChanged: (s) => setState(() => _selectedScenario = s),
@@ -589,6 +593,66 @@ class _ScoreGaugeCard extends StatelessWidget {
           ],
         ),
       );
+}
+
+// ── OBD 모드 배너 ─────────────────────────────────────────────────────────────
+class _ObdModeBanner extends StatelessWidget {
+  final ObdConnectionMode mode;
+  const _ObdModeBanner({required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    final IconData icon;
+    final String title;
+    final String subtitle;
+
+    switch (mode) {
+      case ObdConnectionMode.mock:
+        color    = AppColors.primary;
+        icon     = Icons.science_outlined;
+        title    = 'Mock 모드';
+        subtitle = '시나리오 기반 가상 OBD 데이터 — 실제 차량 명령 전송 없음';
+      case ObdConnectionMode.dryRun:
+        color    = AppColors.warning;
+        icon     = Icons.playlist_add_check_rounded;
+        title    = 'Dry-run 모드';
+        subtitle = 'SafeObdCommandValidator 검증용 — 실제 차량 명령 전송 없음';
+      case ObdConnectionMode.real:
+        color    = AppColors.danger;
+        icon     = Icons.warning_amber_rounded;
+        title    = 'Real OBD 모드 (현재 발표 버전: Mock 데이터 사용 중)';
+        subtitle = '실제 ELM327 연동은 추후 구현 예정 — 현재는 Mock 데이터로 동작합니다';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title,
+                    style: TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+                Text(subtitle,
+                    style: const TextStyle(
+                        fontSize: 11, color: AppColors.textSecondary, height: 1.4)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── 센서 카드 ─────────────────────────────────────────────────────────────────

@@ -167,6 +167,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 16),
 
+            // 프로젝트 핵심 소개
+            const _ProjectSummaryCard(),
+            const SizedBox(height: 16),
+
             // 백그라운드 상태 pill
             Center(
               child: Container(
@@ -295,6 +299,93 @@ class _VehicleCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── 프로젝트 핵심 소개 카드 ──────────────────────────────────────────────────────
+class _ProjectSummaryCard extends StatelessWidget {
+  const _ProjectSummaryCard();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 1))
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 30, height: 30,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: const Icon(Icons.shield_outlined, size: 17, color: AppColors.primary),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'UBI Token 시스템 개요',
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.divider),
+            const SizedBox(height: 10),
+            const _SummaryItem(
+              icon: Icons.verified_outlined,
+              text: 'VIN 검증 기반 차량 데이터 신뢰성 확보',
+            ),
+            const _SummaryItem(
+              icon: Icons.speed_outlined,
+              text: 'OBD-II 표준 PID 기반 실시간 안전운전 점수 산정',
+            ),
+            const _SummaryItem(
+              icon: Icons.science_outlined,
+              text: 'Mock / Dry-run 안전 시연 모드 지원',
+            ),
+            const _SummaryItem(
+              icon: Icons.security_outlined,
+              text: 'SafeObdCommandValidator — 위험 명령 100% 차단',
+            ),
+          ],
+        ),
+      );
+}
+
+class _SummaryItem extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _SummaryItem({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 7),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 13, color: AppColors.primary),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textPrimary, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class _MenuCard extends StatelessWidget {

@@ -736,6 +736,43 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── 프로젝트 안전 철학 설명 ────────────────────────
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.shield_outlined, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    const Text('안전 검증 모드 안내', style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Dry-run 모드는 실제 차량에 명령을 전송하지 않고, '
+                  '앱이 전송하려는 OBD-II 명령이 안전한지 검증하는 모드입니다.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textPrimary, height: 1.6),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '본 앱은 표준 OBD-II PID 읽기 전용 명령만 허용하며, '
+                  '제조사 고유 CAN · 제어 · 초기화 · 삭제 명령은 차단합니다.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textPrimary, height: 1.6),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
           // ── 현재 모드 배지 ─────────────────────────────────
           Container(
             width: double.infinity,
@@ -1310,6 +1347,33 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
           ),
 
           const SizedBox(height: 20),
+
+          // ── 발표용 구현 범위 체크리스트 ────────────────────
+          _buildSectionLabel('발표 기준 구현 범위'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+              boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
+            ),
+            child: Column(
+              children: const [
+                _ChecklistRow(done: true,  label: 'VIN 기반 차량 인증 구조 구현'),
+                _ChecklistRow(done: true,  label: 'Mock OBD 데이터 기반 안전점수 측정'),
+                _ChecklistRow(done: true,  label: 'Dry-run 명령 안전 검증 구조 구현'),
+                _ChecklistRow(done: true,  label: '표준 OBD-II PID 읽기 전용 허용 목록 적용'),
+                _ChecklistRow(done: true,  label: '위험 명령 10종 차단 테스트 통과'),
+                _ChecklistRow(done: true,  label: '조향각·방향지시등 기능 제외 (Raw CAN 불필요)'),
+                _ChecklistRow(done: false, label: '실제 ELM327 BLE 연동 (추후 확장 예정)'),
+                _ChecklistRow(done: false, label: 'VSL 제한속도 API 안정화 (추후 확장 예정)'),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
         ],
       ),
     );
@@ -1329,6 +1393,30 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 확장 예정 기능 안내
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.warningLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: AppColors.warning),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '향후 확장 예정 기능 — 제한속도 API 연동은 추후 안정화 예정입니다.\n'
+                    '발표 버전에서는 도로 정보 조회 기능을 참고용으로만 활용합니다.',
+                    style: TextStyle(fontSize: 12, color: AppColors.textPrimary, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -2302,3 +2390,51 @@ class _DebugRow extends StatelessWidget {
         ),
       );
 }
+
+// ── 발표용 체크리스트 행 ──────────────────────────────────────────────────────────
+class _ChecklistRow extends StatelessWidget {
+  final bool   done;
+  final String label;
+  const _ChecklistRow({required this.done, required this.label});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          done ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+          size: 15,
+          color: done ? AppColors.success : AppColors.textHint,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: done ? AppColors.textPrimary : AppColors.textHint,
+              height: 1.4,
+              decoration: done ? null : TextDecoration.none,
+            ),
+          ),
+        ),
+        if (!done)
+          Container(
+            margin: const EdgeInsets.only(left: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.warningLight,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              '추후 확장',
+              style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: AppColors.warning),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
