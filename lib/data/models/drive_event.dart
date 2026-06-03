@@ -1,10 +1,8 @@
 enum EventType {
-  // ── 기존 이벤트 (대시보드/RPM·조향각 기반) ─────────────
-  suddenAccel,    // 급가속 (RPM 변화량 기반, 기존 대시보드용)
-  suddenBrake,    // 급감속 (속도 변화량 기반, 기존 대시보드용)
-  suddenSteering, // 급조향
-  speeding,       // 과속 (TODO: ITS API 연동 후 활성화)
-  hazardLight,    // 비상등 (방어운전 가산)
+  // ── 기존 대시보드용 이벤트 (속도·RPM 변화량 기반) ─────
+  suddenAccel, // 급가속 (RPM 변화량 기반)
+  suddenBrake, // 급감속 (속도 변화량 기반)
+  speeding,    // 과속 (TODO: ITS API 연동 후 활성화)
 
   // ── 안전점수 엔진용 이벤트 (가속도 m/s² 기반) ─────────
   harshAccel,     // 급가속 (가속도 >= 2.5 m/s²)
@@ -16,15 +14,19 @@ enum EventType {
   engineOverload, // 엔진 과부하 (부하율 80% 이상 5초+)
 }
 
+// 참고: 조향각 및 방향지시등 이벤트(suddenSteering, hazardLight)는
+// 제조사 고유 CAN 신호 해석이 필요하고 안전성 검증이 필요하므로
+// 본 구현 범위에서 제외하였다.
+
 class DriveEvent {
   final EventType type;
   final DateTime timestamp;
   final double latitude;
   final double longitude;
-  final double value;   // 발생 시점의 측정값
-  final String title;   // 이벤트 한글 제목
-  final String description; // 이벤트 상세 설명
-  final int penalty;    // 감점 점수 (0 = 가산 이벤트)
+  final double value;
+  final String title;
+  final String description;
+  final int penalty;
 
   const DriveEvent({
     required this.type,

@@ -293,25 +293,27 @@ class RealObdDataSource implements DrivingDataSource {
   Timer? _timer;
   bool _initialized = false;
 
-  /// ELM327 AT 명령 초기화
+  /// ELM327 AT 명령 초기화 (표준 읽기 전용 명령만 사용)
   ///
-  /// 초기화 순서:
-  ///   ATZ  → ELM327 리셋 (응답: ELM327 v1.5)
+  /// 초기화 순서 (SafeObdCommandValidator 허용 목록 내 명령만):
+  ///   ATZ  → ELM327 리셋
   ///   ATE0 → 에코 OFF
   ///   ATL0 → 줄바꿈 OFF
-  ///   ATS0 → 공백 OFF (선택: OFF 시 응답이 공백 없이 붙어옴, 파서가 2자리씩 분리)
-  ///   ATH0 → 헤더 OFF (또는 ATH1: ON, 헤더 포함 시 파서에서 자동 제거)
-  ///   ATAT1 → 적응형 타이밍 ON
-  ///   ATSP0 → 프로토콜 자동 선택 (또는 ATSP6: ISO 15765-4 CAN 11bit 500kbaud)
+  ///   ATS0 → 공백 OFF
+  ///   ATH0 → 헤더 OFF (Raw CAN 접근 불가)
+  ///   ATSP0 → 프로토콜 자동 선택
+  ///
+  /// 금지: ATAT1(적응형 타이밍), ATSP6(특정 프로토콜 고정),
+  ///       ATSH/ATCRA/ATCAF 등 CAN 헤더·필터 관련 명령
   Future<bool> initializeElm327() async {
-    // TODO: 아래 명령들을 ObdDatasource._sendCommand() 또는 sendRaw()로 전송
+    // TODO: ObdDatasource.connect() 호출 시 _initialize()에서 자동 처리됨.
+    //       별도 초기화 불필요. 아래는 수동 호출 예시만 남김.
     // final commands = [
-    //   'ATZ\r',   // 리셋 (응답 대기 1000ms)
+    //   'ATZ\r',   // 리셋
     //   'ATE0\r',  // 에코 OFF
     //   'ATL0\r',  // 줄바꿈 OFF
-    //   'ATS0\r',  // 공백 OFF (선택)
-    //   'ATH0\r',  // 헤더 OFF (파서가 헤더 없는 응답에 대응)
-    //   'ATAT1\r', // 적응형 타이밍
+    //   'ATS0\r',  // 공백 OFF
+    //   'ATH0\r',  // 헤더 OFF
     //   'ATSP0\r', // 프로토콜 자동
     // ];
     // for (final cmd in commands) {

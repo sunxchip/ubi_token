@@ -184,7 +184,37 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 안내 카드
+            // 읽기 전용 안전 안내 카드
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFB923C).withValues(alpha: 0.4)),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.shield_outlined, size: 20, color: Color(0xFFEA580C)),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '본 앱은 표준 OBD-II PID 읽기 전용 모드로만 동작합니다.\n'
+                      '제조사 전용 CAN · 제어 · 삭제 · 초기화 명령은 사용하지 않습니다.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFEA580C),
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // BLE 안내 카드
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
