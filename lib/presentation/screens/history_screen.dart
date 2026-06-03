@@ -68,14 +68,38 @@ class _HistoryScreenState extends State<HistoryScreen> {
           }
           final sessions = snapshot.data ?? [];
           if (sessions.isEmpty) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.history, size: 40, color: AppColors.textHint),
-                  SizedBox(height: 12),
-                  Text('주행 기록이 없습니다', style: AppTextStyles.bodySecondary),
-                ],
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryLight,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.history_outlined,
+                          size: 36, color: AppColors.primary),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('아직 주행 기록이 없습니다',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary)),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '스캐너를 연결하고 주행을 시작하면\n기록이 이곳에 표시됩니다',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          height: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
             );
           }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'onboarding/signup_screen.dart';
+import 'pid_diagnostic_screen.dart';
+import 'real_drive_screen.dart';
 import '../widgets/app_colors.dart';
 import '../widgets/app_text_styles.dart';
 
@@ -12,9 +14,11 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _eventAlert  = true;
-  bool _vibration   = true;
-  String _vin       = '';
+  bool   _eventAlert  = true;
+  bool   _vibration   = true;
+  String _vin         = '';
+  String _carModel    = '';
+  String _email       = '';
 
   @override
   void initState() {
@@ -26,8 +30,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _eventAlert = prefs.getBool('event_alert') ?? true;
-      _vibration  = prefs.getBool('vibration') ?? true;
-      _vin        = prefs.getString('vin') ?? '';
+      _vibration  = prefs.getBool('vibration')   ?? true;
+      _vin        = prefs.getString('vin')        ?? '';
+      _carModel   = prefs.getString('car_model')  ?? '';
+      _email      = prefs.getString('email')      ?? '';
     });
   }
 
@@ -38,13 +44,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('로그아웃', style: AppTextStyles.h3),
+        content: const Text('로그아웃하시겠습니까?',
+            style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소',
+                  style: TextStyle(color: AppColors.textSecondary))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('로그아웃',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const SignupScreen()),
-          (_) => false,
+      (_) => false,
     );
   }
 
@@ -61,24 +94,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 차량 정보 섹션
+          // ── 계정 정보 ─────────────────────────────────────
+          _SectionLabel('계정'),
+          const SizedBox(height: 6),
+          _SettingsGroup(
+            children: [
+              if (_email.isNotEmpty)
+                _InfoTile(
+                  icon: Icons.person_outline,
+                  label: '이메일',
+                  value: _email,
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── 차량 정보 ─────────────────────────────────────
           _SectionLabel('차량 정보'),
           const SizedBox(height: 6),
           _SettingsGroup(
             children: [
               _InfoTile(
                 icon: Icons.directions_car_outlined,
-                label: 'VIN (차대번호)',
-                value: _vin.isNotEmpty ? _vin : '인증된 차량 없음',
-                valueColor: _vin.isNotEmpty ? AppColors.textPrimary : AppColors.textHint,
+                label: '차량',
+                value: _carModel.isNotEmpty ? _carModel : '등록된 차량 없음',
+                valueColor: _carModel.isNotEmpty
+                    ? AppColors.textPrimary
+                    : AppColors.textHint,
               ),
+              if (_vin.isNotEmpty && !_vin.startsWith('DEMO')) ...[
+                const Divider(height: 1, indent: 52, color: AppColors.divider),
+                _InfoTile(
+                  icon: Icons.credit_card_outlined,
+                  label: 'VIN',
+                  value: _vin,
+                ),
+              ],
             ],
           ),
 
           const SizedBox(height: 20),
 
-          // 알림 설정 섹션
-          _SectionLabel('알림 설정'),
+          // ── 알림 설정 ─────────────────────────────────────
+          _SectionLabel('알림'),
           const SizedBox(height: 6),
           _SettingsGroup(
             children: [
@@ -108,8 +167,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 20),
 
-          // 계정 섹션
-          _SectionLabel('계정'),
+          // ── 고급 도구 (발표/진단용) ───────────────────────
+          _SectionLabel('고급 도구'),
+          const SizedBox(height: 6),
+          _SettingsGroup(
+            children: [
+              _ActionTile(
+                icon: Icons.analytics_outlined,
+                label: 'PID 진단',
+                sub: 'OBD 명령 검증 및 차량 데이터 확인',
+                color: AppColors.textPrimary,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const PidDiagnosticScreen()),
+                ),
+              ),
+              const Divider(height: 1, indent: 52, color: AppColors.divider),
+              _ActionTile(
+                icon: Icons.directions_car_outlined,
+                label: '실차 주행 테스트',
+                sub: '4단계 안전 게이트 · 표준 PID 읽기 전용',
+                color: const Color(0xFFE65100),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const RealDriveScreen()),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── 계정 관리 ─────────────────────────────────────
+          _SectionLabel('계정 관리'),
           const SizedBox(height: 6),
           _SettingsGroup(
             children: [
@@ -124,18 +215,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 20),
 
-          // 앱 정보
-          _SectionLabel('정보'),
+          // ── 앱 정보 ───────────────────────────────────────
+          _SectionLabel('앱 정보'),
           const SizedBox(height: 6),
           _SettingsGroup(
             children: [
-              _InfoTile(
+              const _InfoTile(
                 icon: Icons.info_outline,
                 label: '버전',
                 value: '1.0.0',
               ),
+              const Divider(height: 1, indent: 52, color: AppColors.divider),
+              const _InfoTile(
+                icon: Icons.shield_outlined,
+                label: '보안',
+                value: '표준 OBD-II PID 읽기 전용',
+              ),
             ],
           ),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -150,10 +248,10 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(
         text,
         style: const TextStyle(
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: FontWeight.w600,
           color: AppColors.textSecondary,
-          letterSpacing: 0.3,
+          letterSpacing: 0.5,
         ),
       );
 }
@@ -168,7 +266,10 @@ class _SettingsGroup extends StatelessWidget {
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.border),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+          boxShadow: const [
+            BoxShadow(
+                color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))
+          ],
         ),
         child: Column(children: children),
       );
@@ -195,13 +296,17 @@ class _InfoTile extends StatelessWidget {
             Icon(icon, size: 18, color: AppColors.textSecondary),
             const SizedBox(width: 12),
             Expanded(child: Text(label, style: AppTextStyles.body)),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                color: valueColor,
-                fontWeight: FontWeight.w500,
-                letterSpacing: value.length > 10 ? 0.5 : 0,
+            Flexible(
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: valueColor,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: value.length > 10 ? 0.5 : 0,
+                ),
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -254,6 +359,7 @@ class _SwitchTile extends StatelessWidget {
 class _ActionTile extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String? sub;
   final Color color;
   final VoidCallback onTap;
 
@@ -262,6 +368,7 @@ class _ActionTile extends StatelessWidget {
     required this.label,
     required this.color,
     required this.onTap,
+    this.sub,
   });
 
   @override
@@ -269,12 +376,30 @@ class _ActionTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
           child: Row(
             children: [
               Icon(icon, size: 18, color: color),
               const SizedBox(width: 12),
-              Text(label, style: TextStyle(fontSize: 14, color: color, fontWeight: FontWeight.w500)),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            fontSize: 14,
+                            color: color,
+                            fontWeight: FontWeight.w500)),
+                    if (sub != null)
+                      Text(sub!,
+                          style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textHint)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  size: 18, color: AppColors.textHint),
             ],
           ),
         ),

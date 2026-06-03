@@ -59,8 +59,39 @@ class _StatsScreenState extends State<StatsScreen> {
           }
           final data = snapshot.data ?? _StatsData.empty();
           if (data.scores.isEmpty) {
-            return const Center(
-              child: Text('주행 데이터가 없습니다', style: TextStyle(color: Colors.grey)),
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.bar_chart_outlined,
+                          size: 36, color: Color(0xFF2563EB)),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('아직 데이터가 없습니다',
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1E293B))),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '주행을 시작하면 여기에\n통계가 표시됩니다',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF64748B),
+                          height: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
             );
           }
           final maxScore = 100.0;
