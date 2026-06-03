@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/datasources/dry_run_obd_data_source.dart';
 import '../../data/datasources/obd_datasource.dart';
 import '../../data/datasources/real_read_only_data_source.dart';
+import 'onboarding/scanner_connect_screen.dart';
 import '../../data/models/drive_event.dart';
 import '../../data/models/driving_sample.dart';
 import '../../data/models/obd_drive_log.dart';
@@ -418,20 +419,45 @@ class _RealDriveScreenState extends State<RealDriveScreen> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
+          // BLE 연결 화면으로 이동 — 돌아오면 연결 상태 재확인
           SizedBox(
             width: double.infinity,
             height: 48,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.bluetooth_searching, color: Colors.white, size: 18),
+              label: const Text('BLE 스캐너 연결하기',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ScannerConnectScreen(isReconnect: true),
+                  ),
+                );
+                // 연결 화면에서 돌아오면 BLE 상태 재확인
+                if (mounted) _checkBle();
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text('홈으로',
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(context),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.border),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('돌아가기',
+                  style: TextStyle(color: AppColors.textSecondary)),
             ),
           ),
         ],
