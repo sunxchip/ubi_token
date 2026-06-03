@@ -242,7 +242,7 @@ class _PenaltySummaryGrid extends StatelessWidget {
       _PenaltyItem('급감속',     result.harshBrakeCount,    4, Icons.arrow_downward_rounded,       AppColors.danger),
       _PenaltyItem('급출발',     result.hardStartCount,     4, Icons.directions_car_rounded,       AppColors.danger),
       _PenaltyItem('고RPM',     result.highRpmCount,       2, Icons.speed_rounded,                const Color(0xFF7C3AED)),
-      _PenaltyItem('스로틀급변', result.throttleSpikeCount, 2, Icons.tune_rounded,                 AppColors.warning),
+      _PenaltyItem('스로틀급변', result.throttleSpikeCount, 3, Icons.tune_rounded,                 AppColors.warning),
       _PenaltyItem('공회전',    result.idlingCount,         2, Icons.timer_rounded,                AppColors.primary),
       _PenaltyItem('엔진과부하', result.engineOverloadCount, 2, Icons.local_fire_department_rounded, const Color(0xFFEA580C)),
     ];

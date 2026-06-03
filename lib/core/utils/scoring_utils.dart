@@ -6,6 +6,7 @@ import 'drive_tracking_state_machine.dart';
 
 class ScoringUtils {
   // 이벤트 목록으로 최종 점수 산출 (100점 만점, 기존 대시보드용)
+  // 조향각 및 방향지시등 이벤트는 제거되어 이 함수에서 처리하지 않음
   static int calculateScore(List<DriveEvent> events) {
     int score = 100;
 
@@ -17,14 +18,8 @@ class ScoringUtils {
         case EventType.suddenBrake:
           score -= 5;
           break;
-        case EventType.suddenSteering:
-          score -= 3;
-          break;
         case EventType.speeding:
           score -= 7;
-          break;
-        case EventType.hazardLight:
-          score += 3; // 방어운전 가산
           break;
         default:
           break;
@@ -44,28 +39,23 @@ class ScoringUtils {
     return (prevSpeed - currSpeed) > ObdConstants.suddenBrakeKphDelta;
   }
 
-  // 급조향 여부 판별 (도/초)
-  static bool isSuddenSteering(double deltaAngle, double deltaTimeSec) {
-    if (deltaTimeSec == 0) return false;
-    return (deltaAngle.abs() / deltaTimeSec) > ObdConstants.steeringThreshold;
-  }
+  // 참고: isSuddenSteering()은 제조사 고유 CAN 신호(조향각)가 필요하므로 제거됨
 }
 
 /// 안전점수 실시간 계산 엔진
 ///
-/// 1초마다 [DrivingSample]을 [processSample]로 전달하면
-/// 새로 발생한 [DriveEvent] 목록을 반환하고 내부 점수를 갱신한다.
+/// 표준 OBD-II PID 기반으로만 동작한다:
+///   010D Vehicle Speed, 010C Engine RPM,
+///   0111 Throttle Position, 0104 Engine Load
 ///
-/// 이벤트 쿨타임: 같은 이벤트가 [ObdConstants.eventCooldownSec]초 이내 재발생하면 무시한다.
-/// 지속 이벤트: 고RPM·공회전·엔진과부하는 일정 초 이상 지속될 때만 감점한다.
+/// 제외 항목: 조향각, 방향지시등, 브레이크 압력, 변속 상태, 휠스피드,
+///           ABS/ESC, 차체 CAN 신호
 class DrivingScoreEngine {
   int _score = 100;
   final List<DriveEvent> _events = [];
 
-  // 이벤트별 마지막 발생 시각 (쿨타임 관리)
   final Map<EventType, DateTime> _lastEventTime = {};
 
-  // 지속 이벤트 카운터 (단위: 초)
   int _highRpmSeconds        = 0;
   int _idlingSeconds         = 0;
   int _engineOverloadSeconds = 0;
@@ -73,13 +63,6 @@ class DrivingScoreEngine {
   int get score => _score;
   List<DriveEvent> get events => List.unmodifiable(_events);
 
-  /// [current] 샘플과 직전 [previous] 샘플을 비교하여 이벤트를 판별한다.
-  ///
-  /// [trackingState] 에 따라 감점 항목이 달라진다:
-  ///   - driving           : 급가속·급감속·급출발·고RPM·스로틀급변·엔진과부하
-  ///   - engineOn·stopped  : 공회전 (speed <= 3 & rpm >= 700 이 60초 이상)
-  ///
-  /// 새로 발생한 이벤트 목록을 반환한다.
   List<DriveEvent> processSample(
     DrivingSample current,
     DrivingSample? previous, {
@@ -91,9 +74,7 @@ class DrivingScoreEngine {
     final dt = current.timestamp.difference(previous.timestamp).inMilliseconds / 1000.0;
     if (dt <= 0) return newEvents;
 
-    // ── 주행 중 감점 항목 (driving 상태에서만) ────────────────────────────────
     if (trackingState == DriveTrackingState.driving) {
-      // acceleration = ((currentSpeed - prevSpeed) / 3.6) / deltaTimeSec  [m/s²]
       final accel = ((current.speed - previous.speed) / 3.6) / dt;
 
       // A. 급가속 (acceleration >= 2.5 m/s²)
@@ -101,7 +82,7 @@ class DrivingScoreEngine {
         final e = _tryAddEvent(
           type: EventType.harshAccel,
           title: '급가속',
-          description: '가속도 ${accel.toStringAsFixed(1)} m/s²',
+          description: '짧은 시간 내 속도가 급격히 증가했습니다. (가속도 ${accel.toStringAsFixed(1)} m/s²)',
           penalty: ObdConstants.penaltyHarshAccel,
           value: accel,
         );
@@ -113,7 +94,7 @@ class DrivingScoreEngine {
         final e = _tryAddEvent(
           type: EventType.harshBrake,
           title: '급감속',
-          description: '감속도 ${accel.toStringAsFixed(1)} m/s²',
+          description: '짧은 시간 내 속도가 급격히 감소했습니다. (감속도 ${accel.toStringAsFixed(1)} m/s²)',
           penalty: ObdConstants.penaltyHarshBrake,
           value: accel,
         );
@@ -121,14 +102,14 @@ class DrivingScoreEngine {
       }
 
       // C. 급출발 (이전 속도 ≤ 3km/h + 스로틀 급변 ≥ 30% + RPM ≥ 3000)
-      final throttleDeltaRaw = current.throttle - previous.throttle;
+      final throttleDelta = current.throttle - previous.throttle;
       if (previous.speed <= ObdConstants.idleSpeedThreshold &&
-          throttleDeltaRaw >= ObdConstants.throttleSpikeThreshold &&
+          throttleDelta >= ObdConstants.throttleSpikeThreshold &&
           current.rpm >= ObdConstants.hardStartRpmThreshold) {
         final e = _tryAddEvent(
           type: EventType.hardStart,
           title: '급출발',
-          description: 'RPM ${current.rpm.toInt()}, 스로틀 +${throttleDeltaRaw.toInt()}%',
+          description: '정차 상태에서 스로틀과 RPM이 급격히 상승했습니다.',
           penalty: ObdConstants.penaltyHardStart,
           value: current.rpm,
         );
@@ -142,7 +123,7 @@ class DrivingScoreEngine {
           final e = _tryAddEvent(
             type: EventType.highRpm,
             title: '고RPM 지속',
-            description: 'RPM ${current.rpm.toInt()} / ${_highRpmSeconds}초 지속',
+            description: '높은 RPM 상태가 지속되었습니다. (RPM ${current.rpm.toInt()}, ${_highRpmSeconds}초 지속)',
             penalty: ObdConstants.penaltyHighRpm,
             value: current.rpm,
           );
@@ -161,21 +142,21 @@ class DrivingScoreEngine {
         final e = _tryAddEvent(
           type: EventType.throttleSpike,
           title: '스로틀 급변',
-          description: '변화량 ${throttleAbs.toInt()}%',
+          description: '가속 페달 조작이 급격하게 변화했습니다. (변화량 ${throttleAbs.toInt()}%)',
           penalty: ObdConstants.penaltyThrottleSpike,
           value: throttleAbs,
         );
         if (e != null) newEvents.add(e);
       }
 
-      // G. 엔진 과부하 (부하율 ≥ 80% 이 5초 이상 지속)
+      // F. 엔진 과부하 (부하율 ≥ 80% 이 5초 이상 지속)
       if (current.engineLoad >= ObdConstants.engineLoadThreshold) {
         _engineOverloadSeconds++;
         if (_engineOverloadSeconds >= ObdConstants.engineOverloadDurationSec) {
           final e = _tryAddEvent(
             type: EventType.engineOverload,
             title: '엔진 과부하',
-            description: '부하 ${current.engineLoad.toInt()}% / ${_engineOverloadSeconds}초 지속',
+            description: '엔진 부하가 높은 상태가 지속되었습니다. (부하 ${current.engineLoad.toInt()}%, ${_engineOverloadSeconds}초 지속)',
             penalty: ObdConstants.penaltyEngineOverload,
             value: current.engineLoad,
           );
@@ -188,14 +169,11 @@ class DrivingScoreEngine {
         _engineOverloadSeconds = 0;
       }
     } else {
-      // driving 상태가 아니면 지속 이벤트 카운터 리셋
       _highRpmSeconds        = 0;
       _engineOverloadSeconds = 0;
     }
 
-    // ── 공회전 감점 (engineOn·stopped 상태에서) ───────────────────────────────
-    // 일반 차량: 신호대기 중 RPM 600~900 유지 / ISG: RPM 0 가능
-    // 두 경우 모두 speed <= 3 + rpm >= 700 이 60초 이상이면 공회전 감점
+    // 공회전 감점
     final isIdlingState = trackingState == DriveTrackingState.engineOn ||
                           trackingState == DriveTrackingState.stopped;
     if (isIdlingState &&
@@ -206,7 +184,7 @@ class DrivingScoreEngine {
         final e = _tryAddEvent(
           type: EventType.idling,
           title: '장시간 공회전',
-          description: '${_idlingSeconds}초 지속',
+          description: '정차 상태에서 엔진 구동이 오래 지속되었습니다.',
           penalty: ObdConstants.penaltyIdling,
           value: current.rpm,
         );
@@ -219,17 +197,11 @@ class DrivingScoreEngine {
       _idlingSeconds = 0;
     }
 
-    // TODO: ITS 교통소통정보 API를 활용해 현재 위치 기반 도로 제한속도 조회
-    // TODO: GPS 좌표(gps_datasource.dart)와 ITS API 응답을 매칭하여 과속 여부 판단
-    // TODO: 과속 이벤트(EventType.speeding)를 안전점수 감점 항목에 추가
-    // TODO: API 키는 .env에서 로드하고 코드에 직접 작성하지 않음
-    //       관련 파일: data/datasources/its_datasource.dart, gps_datasource.dart
+    // TODO: ITS API 기반 과속 감점 (위치 기반 제한속도 연동 후 추가 예정)
 
     return newEvents;
   }
 
-  /// 쿨타임을 확인하고, 통과하면 이벤트를 등록하고 점수를 감점한다.
-  /// 쿨타임 내 재발생이면 null을 반환한다.
   DriveEvent? _tryAddEvent({
     required EventType type,
     required String title,
@@ -240,7 +212,6 @@ class DrivingScoreEngine {
     final now  = DateTime.now();
     final last = _lastEventTime[type];
 
-    // 쿨타임 체크: 같은 이벤트가 5초 이내 재발생이면 무시
     if (last != null &&
         now.difference(last).inSeconds < ObdConstants.eventCooldownSec) {
       return null;
@@ -260,7 +231,6 @@ class DrivingScoreEngine {
     return event;
   }
 
-  /// 현재까지의 점수 결과를 [ScoreResult]로 반환한다.
   ScoreResult buildResult() => ScoreResult(
     score:               _score,
     totalPenalty:        100 - _score,
