@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/datasources/obd_datasource.dart';
 import '../home_screen.dart';
 import 'vin_auth_screen.dart';
+import '../../widgets/app_colors.dart';
+import '../../widgets/app_text_styles.dart';
 
 class ScannerConnectScreen extends StatefulWidget {
   /// [isReconnect] true 이면 VIN 인증 스킵 후 홈 화면으로 바로 복귀
@@ -127,15 +129,11 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
         (_) => false,
       );
     } else {
-      // VIN 미인증 상태 → HomeScreen으로 이동 후 안전점수 화면에서 Mock 데이터 사용 가능
-      // VinAuthScreen은 실제 OBD 연결이 필요하므로 Mock 모드에서는 건너뜀
-      // TODO: Mock 전용 VinAuthScreen이 필요하면 MockObdDatasource를 별도 구현할 것
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Mock 모드: VIN 미인증 상태입니다. 안전점수 화면에서 Mock 데이터로 테스트 가능합니다.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      // Mock 모드: 임시 VIN/토큰 저장하여 안전점수 화면 진입 가능하게
+      await prefs.setString('auth_token', 'MOCK_TOKEN');
+      await prefs.setString('vin', 'MOCK-VIN-00000');
+      await prefs.setString('car_model', 'Mock 차량 (테스트)');
+      if (!mounted) return;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -174,53 +172,117 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('스캐너 연결'),
-        backgroundColor: Colors.white,
+        title: const Text('스캐너 연결', style: AppTextStyles.h2),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
         elevation: 0,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'ELM327 스캐너를 차량에 연결하고\n블루투스를 켜주세요',
-              style: TextStyle(fontSize: 15, color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            if (_isAutoConnecting)
-              const Row(
+            // 읽기 전용 안전 안내 카드
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFB923C).withValues(alpha: 0.4)),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
+                  Icon(Icons.shield_outlined, size: 20, color: Color(0xFFEA580C)),
                   SizedBox(width: 10),
-                  Text('이전 기기에 재연결 중...'),
-                ],
-              )
-            else if (_isScanning)
-              const Row(
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                  Expanded(
+                    child: Text(
+                      '본 앱은 표준 OBD-II PID 읽기 전용 모드로만 동작합니다.\n'
+                      '제조사 전용 CAN · 제어 · 삭제 · 초기화 명령은 사용하지 않습니다.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFEA580C),
+                        height: 1.5,
+                      ),
+                    ),
                   ),
-                  SizedBox(width: 10),
-                  Text('장치 검색 중...'),
                 ],
               ),
-            const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 8),
+
+            // BLE 안내 카드
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.bluetooth_searching, size: 20, color: AppColors.primary),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'ELM327 스캐너를 차량에 연결하고 블루투스를 켜주세요',
+                      style: AppTextStyles.bodySecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 스캔 상태 인디케이터
+            if (_isAutoConnecting || _isScanning)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      _isAutoConnecting ? '이전 기기에 재연결 중...' : '장치 검색 중...',
+                      style: const TextStyle(fontSize: 13, color: AppColors.primary),
+                    ),
+                  ],
+                ),
+              ),
+
+            const SizedBox(height: 12),
+
+            // 장치 목록
             Expanded(
               child: _scanResults.isEmpty
                   ? Center(
-                      child: Text(
-                        _isScanning ? '검색 중...' : '장치를 찾지 못했습니다',
-                        style: const TextStyle(color: Colors.grey),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isScanning ? Icons.bluetooth_searching : Icons.bluetooth_disabled,
+                            size: 36,
+                            color: AppColors.textHint,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _isScanning ? '검색 중...' : '장치를 찾지 못했습니다',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                        ],
                       ),
                     )
                   : ListView.builder(
@@ -230,68 +292,72 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
                         final name = result.device.platformName.isNotEmpty
                             ? result.device.platformName
                             : '알 수 없는 장치';
-                        return Card(
+                        return Container(
                           margin: const EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 3, offset: Offset(0, 1))],
                           ),
                           child: ListTile(
-                            title: Text(name),
-                            subtitle: Text(result.device.remoteId.str),
+                            leading: Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryLight,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.bluetooth, size: 18, color: AppColors.primary),
+                            ),
+                            title: Text(name, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
+                            subtitle: Text(result.device.remoteId.str, style: AppTextStyles.captionHint),
                             trailing: _isConnecting
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
+                                    width: 18, height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
                                   )
-                                : const Icon(Icons.bluetooth),
+                                : const Icon(Icons.chevron_right, size: 18, color: AppColors.textHint),
                             onTap: () => _connect(result.device),
                           ),
                         );
                       },
                     ),
             ),
-            SizedBox(
-              width: double.infinity,
-              height: 52,
-              child: OutlinedButton(
-                onPressed: _isScanning ? null : _startScan,
-                style: OutlinedButton.styleFrom(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('다시 검색'),
-              ),
-            ),
-            const SizedBox(height: 12),
 
-            // ── 개발/시연용 Mock 모드 버튼 ──────────────────────────────────
-            // TODO: 실제 차량 테스트(배포) 시에는 이 버튼을 숨기거나 개발자 설정으로 이동
-            // TODO: 실제 ELM327 연결 성공 시에는 기존 _connect() 흐름이 자동 사용됨
+            // 다시 검색 버튼
             SizedBox(
               width: double.infinity,
               height: 48,
-              child: TextButton(
+              child: OutlinedButton.icon(
+                onPressed: _isScanning ? null : _startScan,
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('다시 검색'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Mock 모드 버튼 (개발/시연용)
+            // TODO: 실제 차량 테스트(배포) 시에는 이 버튼을 숨기거나 개발자 설정으로 이동
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
                 onPressed: _isConnecting ? null : _enterMockMode,
+                icon: Icon(Icons.science_outlined, size: 15, color: Colors.grey[400]),
+                label: Text(
+                  '스캐너 없이 테스트하기',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                ),
                 style: TextButton.styleFrom(
-                  foregroundColor: Colors.grey[500],
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                     side: BorderSide(color: Colors.grey[300]!),
                   ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.science_outlined, size: 16, color: Colors.grey[400]),
-                    const SizedBox(width: 8),
-                    Text(
-                      '스캐너 없이 테스트하기',
-                      style: TextStyle(fontSize: 13, color: Colors.grey[500]),
-                    ),
-                  ],
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
@@ -302,6 +368,7 @@ class _ScannerConnectScreenState extends State<ScannerConnectScreen> {
                 style: TextStyle(fontSize: 10, color: Colors.grey[400]),
               ),
             ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
