@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../data/datasources/obd_datasource.dart';
+import '../../data/datasources/dry_run_obd_data_source.dart';
 import '../../data/datasources/its_datasource.dart';
 import '../../data/models/road_speed_limit.dart';
+import '../../core/enums/obd_connection_mode.dart';
+import '../../core/utils/app_mode_controller.dart';
 import '../../core/utils/obd_pid_parser.dart';
 import '../../core/utils/safe_obd_command_validator.dart';
 import '../../core/utils/speed_limit_checker.dart';
@@ -64,6 +67,14 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
   String _customPidType = 'RPM (010C)';
   String _customParseResult = '';
 
+  // ── 안전 점검 탭 ──────────────────────────────────────
+  final _dryRunner = DryRunObdDataSource();
+  List<DryRunLogEntry>? _dryRunResults;
+  List<BlockTestResult>? _blockResults;
+  bool _dryRunRunning   = false;
+  bool _blockRunning    = false;
+  bool _allowedExpanded = false;
+
   // ── 도로/제한속도 탭 ──────────────────────────────────
   final _its = ItsDatasource();
   bool _roadLoading = false;
@@ -79,7 +90,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -217,6 +228,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
             Tab(text: '라이브 모니터'),
             Tab(text: 'PID 파서'),
             Tab(text: '도로정보'),
+            Tab(text: '안전 점검'),
           ],
         ),
       ),
@@ -235,6 +247,7 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
               : _buildLiveMonitor(),
           _buildPidParserTest(),
           _buildRoadInfoTab(),
+          _buildSafetyCheckTab(),
         ],
       ),
     );
@@ -697,6 +710,605 @@ class _PidDiagnosticScreenState extends State<PidDiagnosticScreen>
             '응답 마커: 41 = 서비스01 응답, 다음 바이트 = PID\n'
             '헤더 OFF(ATH0): "41 PID DATA..." 형식',
           ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  // ── 안전 점검 탭 ──────────────────────────────────────────────────────────
+  Widget _buildSafetyCheckTab() {
+    final ctrl = AppModeController();
+    final mode = ctrl.mode;
+    final modeColor = switch (mode) {
+      ObdConnectionMode.mock   => AppColors.primary,
+      ObdConnectionMode.dryRun => AppColors.warning,
+      ObdConnectionMode.real   => AppColors.danger,
+    };
+
+    final allPassed     = _dryRunResults != null &&
+        _dryRunResults!.every((e) => e.allowed);
+    final blockAllPassed = _blockResults != null &&
+        _blockResults!.every((e) => e.blocked);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── 현재 모드 배지 ─────────────────────────────────
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: modeColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: modeColor.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      mode.sendsToVehicle
+                          ? Icons.wifi_tethering
+                          : Icons.shield_outlined,
+                      size: 18,
+                      color: modeColor,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '현재 모드: ${mode.label}  (${mode.badge})',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: modeColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  mode.description,
+                  style: TextStyle(
+                      fontSize: 11, color: modeColor, height: 1.5),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(
+                      mode.sendsToVehicle
+                          ? Icons.warning_amber_rounded
+                          : Icons.check_circle_outline,
+                      size: 14,
+                      color: mode.sendsToVehicle
+                          ? AppColors.danger
+                          : AppColors.success,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      mode.sendsToVehicle
+                          ? '실제 차량으로 명령 전송 활성화'
+                          : '실제 차량으로 전송되는 명령 없음',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: mode.sendsToVehicle
+                            ? AppColors.danger
+                            : AppColors.success,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Real 모드 경고
+          if (mode == ObdConnectionMode.real) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.dangerLight,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: AppColors.danger.withValues(alpha: 0.4)),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 16, color: AppColors.danger),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '실차 연결 전 Dry-run 모드에서 전송 명령을 먼저 확인하세요.\n'
+                      '아래 테스트를 실행하여 SafeObdCommandValidator가 정상 동작하는지 확인하세요.',
+                      style: TextStyle(
+                          color: AppColors.danger, fontSize: 12, height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 16),
+
+          // ── 허용 명령 목록 (펼치기/접기) ──────────────────
+          _buildSectionLabel('허용 명령 목록 (SafeObdCommandValidator)'),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () =>
+                setState(() => _allowedExpanded = !_allowedExpanded),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.border),
+                boxShadow: const [
+                  BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 2,
+                      offset: Offset(0, 1))
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 14, color: AppColors.success),
+                      const SizedBox(width: 6),
+                      const Text('15개 허용 명령',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.success)),
+                      const Spacer(),
+                      Icon(
+                          _allowedExpanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          size: 16,
+                          color: AppColors.textHint),
+                    ],
+                  ),
+                  if (_allowedExpanded) ...[
+                    const SizedBox(height: 8),
+                    const Divider(height: 1, color: AppColors.divider),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: const [
+                        'ATZ', 'ATE0', 'ATL0', 'ATS0', 'ATH0', 'ATSP0',
+                        '0100', '0104', '0105', '010C', '010D', '0111',
+                        '012F', '0902', '03',
+                      ].map((cmd) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.successLight,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                              color:
+                                  AppColors.success.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(cmd,
+                            style: const TextStyle(
+                              color: AppColors.success,
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            )),
+                      )).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Dry-run 테스트 ─────────────────────────────────
+          _buildSectionLabel('Dry-run 허용 명령 테스트'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+            ),
+            child: const Text(
+              '허용 명령 12개를 샘플 응답으로 테스트합니다.\n'
+              '실제 차량에 어떤 명령도 전송하지 않습니다.',
+              style: TextStyle(
+                  color: AppColors.primary, fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: _dryRunRunning
+                  ? null
+                  : () async {
+                      setState(() => _dryRunRunning = true);
+                      await Future.delayed(
+                          const Duration(milliseconds: 100));
+                      final results = _dryRunner.runAllTests();
+                      final passed  = results.every((e) => e.allowed);
+                      if (mounted) {
+                        setState(() {
+                          _dryRunResults  = results;
+                          _dryRunRunning  = false;
+                          AppModeController().dryRunTestPassed = passed;
+                        });
+                      }
+                    },
+              icon: _dryRunRunning
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.play_arrow, size: 16),
+              label: Text(
+                _dryRunRunning ? '테스트 실행 중...' : 'Dry-run 테스트 실행',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _dryRunResults == null
+                    ? AppColors.primary
+                    : (allPassed ? AppColors.success : AppColors.danger),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          if (_dryRunResults != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: _dryRunResults!.map((e) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 7),
+                    child: Row(
+                      children: [
+                        Icon(
+                          e.allowed
+                              ? Icons.check_circle
+                              : Icons.block,
+                          size: 13,
+                          color: e.allowed
+                              ? const Color(0xFF4ADE80)
+                              : Colors.orange.shade300,
+                        ),
+                        const SizedBox(width: 6),
+                        SizedBox(
+                          width: 72,
+                          child: Text(
+                            e.command,
+                            style: const TextStyle(
+                              color: Color(0xFF38BDF8),
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            e.allowed
+                                ? (e.response ?? 'NO DATA')
+                                : 'BLOCKED',
+                            style: TextStyle(
+                              color: e.allowed
+                                  ? const Color(0xFF94A3B8)
+                                  : Colors.orange.shade300,
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (e.parsed != null)
+                          Text(
+                            '→ ${e.parsed}',
+                            style: const TextStyle(
+                              color: Color(0xFF4ADE80),
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  allPassed
+                      ? Icons.check_circle_rounded
+                      : Icons.cancel_rounded,
+                  size: 14,
+                  color: allPassed ? AppColors.success : AppColors.danger,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  allPassed
+                      ? 'Dry-run 테스트 통과 — AppModeController.dryRunTestPassed = true'
+                      : 'Dry-run 테스트 실패',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: allPassed ? AppColors.success : AppColors.danger,
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // ── 위험 명령 차단 테스트 ──────────────────────────
+          _buildSectionLabel('위험 명령 차단 테스트'),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.dangerLight,
+              borderRadius: BorderRadius.circular(8),
+              border:
+                  Border.all(color: AppColors.danger.withValues(alpha: 0.2)),
+            ),
+            child: const Text(
+              '10개 위험 명령이 SafeObdCommandValidator에 의해 차단되는지 확인합니다.\n'
+              '실제 차량에 어떤 명령도 전송하지 않습니다.',
+              style: TextStyle(
+                  color: AppColors.danger, fontSize: 12, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: _blockRunning
+                  ? null
+                  : () async {
+                      setState(() => _blockRunning = true);
+                      await Future.delayed(
+                          const Duration(milliseconds: 100));
+                      final results = _dryRunner.runBlockTests();
+                      final passed  = results.every((r) => r.blocked);
+                      if (mounted) {
+                        setState(() {
+                          _blockResults = results;
+                          _blockRunning = false;
+                          AppModeController().blockTestPassed = passed;
+                        });
+                      }
+                    },
+              icon: _blockRunning
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                  : const Icon(Icons.security, size: 16),
+              label: Text(
+                _blockRunning ? '차단 테스트 실행 중...' : '위험 명령 차단 테스트 실행',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _blockResults == null
+                    ? const Color(0xFF7C3AED)
+                    : (blockAllPassed
+                        ? AppColors.success
+                        : AppColors.danger),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          if (_blockResults != null) ...[
+            const SizedBox(height: 8),
+            ..._blockResults!.map((r) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: r.blocked
+                        ? AppColors.success.withValues(alpha: 0.3)
+                        : AppColors.danger.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      r.blocked
+                          ? Icons.block
+                          : Icons.warning_amber_rounded,
+                      size: 14,
+                      color:
+                          r.blocked ? AppColors.success : AppColors.danger,
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 110,
+                      child: Text(
+                        r.command,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: r.blocked
+                            ? AppColors.successLight
+                            : AppColors.dangerLight,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        r.blocked ? 'BLOCKED ✓' : 'ALLOWED ✗',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: r.blocked
+                              ? AppColors.success
+                              : AppColors.danger,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  blockAllPassed
+                      ? Icons.check_circle_rounded
+                      : Icons.cancel_rounded,
+                  size: 14,
+                  color:
+                      blockAllPassed ? AppColors.success : AppColors.danger,
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    blockAllPassed
+                        ? '위험 명령 10개 모두 차단 확인 — AppModeController.blockTestPassed = true'
+                        : '차단 실패한 명령 존재! 실차 연결 전 수정 필요',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: blockAllPassed
+                          ? AppColors.success
+                          : AppColors.danger,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 20),
+
+          // ── 현재 앱에서 실제 전송 가능한 명령 목록 ─────────
+          _buildSectionLabel('실제 차량 전송 가능 명령 (Real 모드 한정)'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ELM327 초기화 (6개)',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'ATZ · ATE0 · ATL0 · ATS0 · ATH0 · ATSP0',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: AppColors.textPrimary),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '표준 OBD-II 서비스01 PID (7개)',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '0100 · 0104 · 0105 · 010C · 010D · 0111 · 012F',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: AppColors.textPrimary),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '차량 정보 / DTC 읽기 (2개)',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '0902 (VIN) · 03 (DTC 읽기 전용)',
+                  style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: AppColors.textPrimary),
+                ),
+                SizedBox(height: 10),
+                Text(
+                  '절대 전송하지 않는 명령 예시',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.danger),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '04(DTC삭제) · 08(온보드제어) · 22xx(제조사PID)\n'
+                  'ATSH/ATCRA(CAN헤더) · 10/11/14(UDS) · 2E(ECU쓰기)',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: AppColors.danger,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           const SizedBox(height: 20),
         ],
       ),

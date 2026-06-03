@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/enums/obd_connection_mode.dart';
+import '../../core/utils/app_mode_controller.dart';
 import '../../data/datasources/driving_data_source.dart';
+import '../../data/datasources/dry_run_obd_data_source.dart';
 import '../../data/models/driving_sample.dart';
 import '../../data/models/drive_event.dart';
 import '../../data/models/score_result.dart';
@@ -73,7 +76,16 @@ class _DrivingScoreScreenState extends State<DrivingScoreScreen> {
   void _startMonitoring() {
     if (_isMonitoring || !_isVinVerified) return;
 
-    _dataSource = MockObdDataSource(scenario: _selectedScenario);
+    // AppModeController 모드에 따라 데이터 소스 선택
+    // 기본: mock / dryRun → 실제 차량에 명령 전송하지 않음
+    // real: RealObdDataSource (TODO: 실제 연결 구현 후 교체)
+    final appMode = AppModeController().mode;
+    if (appMode == ObdConnectionMode.dryRun) {
+      _dataSource = DryRunObdDataSource();
+    } else {
+      // mock 또는 real (real은 현재 MockObdDataSource로 fallback — TODO 교체)
+      _dataSource = MockObdDataSource(scenario: _selectedScenario);
+    }
     _stateMachine.reset();
     _scoreEngine.reset();
 
